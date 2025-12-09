@@ -91,10 +91,63 @@ User → curl/Postman → Core Server → SQLite
 
 ## Phase 5: Telegram Interface
 
-- [ ] **5.1** Setup grammY bot in `src/interfaces/telegram/` with token from env
-- [ ] **5.2** Add `/start` command with welcome message
-- [ ] **5.3** Integrate bot startup into main `index.ts`
-- [ ] **5.4** Setup graceful shutdown for bot
+**Access:** Single owner only via `TELEGRAM_OWNER_ID` env var
+**Auth:** Must link Telegram account to better-auth user before commands work
+
+### Phase 5A: Core Bot Setup
+
+- [ ] **5A.1** Setup grammY bot in `src/interfaces/telegram/` with token from env
+- [ ] **5A.2** Add middleware to check `ctx.from.id` matches `TELEGRAM_OWNER_ID`
+- [ ] **5A.3** Integrate bot startup into main `index.ts`
+- [ ] **5A.4** Setup graceful shutdown for bot
+
+### Phase 5B: Account Linking
+
+- [ ] **5B.1** Create `telegram_links` table schema (telegram_user_id, user_id, linked_at)
+- [ ] **5B.2** Generate migration for new table
+- [ ] **5B.3** Create one-time link token generation (stores in DB with expiry)
+- [ ] **5B.4** Implement `/auth/telegram/link?token=xxx` route that links accounts
+- [ ] **5B.5** Add bot middleware to check if Telegram account is linked
+- [ ] **5B.6** Implement `/start` with setup wizard:
+  - If not linked → generate link token, send auth URL
+  - If linked → show welcome + available commands
+
+### Phase 5C: Status Command (First Priority)
+
+- [ ] **5C.1** Implement `/status` command showing:
+  - Server uptime
+  - Database connection status
+  - Bot connection status
+  - Connected services count
+- [ ] **5C.2** Add error handling for status checks
+
+### Phase 5D: Services Command
+
+- [ ] **5D.1** Implement `/services` command:
+  - Lists all connected services with status
+  - Shows connection date
+  - No secrets exposed
+- [ ] **5D.2** Handle empty state (no services connected)
+
+### Phase 5E: Context-Aware Help
+
+- [ ] **5E.1** Implement `/help` command that shows:
+  - Different options based on link status
+  - Different options based on connected services
+  - Available commands for current state
+
+### Phase 5F: OAuth via Telegram (Later)
+
+- [ ] **5F.1** Implement `/connect <provider>` command
+- [ ] **5F.2** Implement `/disconnect <provider>` command
+- [ ] **5F.3** OAuth callback notification mechanism — **TBD: open for discussion**
+  - Options: polling, deep link callback, manual confirmation, WebSocket/SSE
+
+### Phase 5G: Inline Keyboards (Later)
+
+- [ ] **5G.1** Add inline keyboard to `/start` for common actions
+- [ ] **5G.2** Add inline keyboard to `/services` for quick actions
+- [ ] **5G.3** Add confirmation keyboards for destructive actions
 
 ## Phase 6: Connected Services
 
@@ -137,6 +190,24 @@ User → curl/Postman → Core Server → SQLite
 
 ---
 
+# Addon Phases
+
+## Addon A: Telegram Data Fetching
+
+- [ ] **A.1** Implement `/watchlater` command (YouTube watch later export)
+- [ ] **A.2** Add pagination/chunking for large responses
+- [ ] **A.3** Add export format options (JSON, text summary)
+
+## Addon B: Telegram Proactive Notifications
+
+- [ ] **B.1** Design notification preferences storage
+- [ ] **B.2** Implement background job scheduler (cron-style)
+- [ ] **B.3** Add critical alerts (server down, token refresh failed)
+- [ ] **B.4** Add optional regular updates (daily summaries, new items)
+- [ ] **B.5** Implement `/notifications` command to configure preferences
+
+---
+
 # Environment Variables
 
 | Variable | Package | Description |
@@ -149,4 +220,5 @@ User → curl/Postman → Core Server → SQLite
 | `YOUTUBE_CLIENT_ID` | core | Google OAuth client ID |
 | `YOUTUBE_CLIENT_SECRET` | core | Google OAuth client secret |
 | `TELEGRAM_BOT_TOKEN` | core | Bot token from BotFather |
+| `TELEGRAM_OWNER_ID` | core | Telegram user ID allowed to use the bot |
 | `PORT` | core | Server port (default 3000) |
