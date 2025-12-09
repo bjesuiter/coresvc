@@ -11,6 +11,7 @@
     "clean": "bun --filter @coresvc/core clean",
     "db:generate": "bun --filter @coresvc/core db:generate",
     "db:migrate": "bun --filter @coresvc/core db:migrate",
+    "db:push": "bun --filter @coresvc/core db:push",
     "db:studio": "bun --filter @coresvc/core db:studio"
   },
   "workspaces": [
