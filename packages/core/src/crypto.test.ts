@@ -10,14 +10,14 @@ describe("Crypto Module", () => {
     expect(keyBuffer.length).toBe(32);
   });
 
-  it("should encrypt and decrypt text correctly", async () => {
+  it("should encrypt and decrypt text correctly", () => {
     const plaintext = "Hello, World!";
     
-    const encryptedResult = await encrypt(plaintext, testKey);
+    const encryptedResult = encrypt(plaintext, testKey);
     expect(encryptedResult.isOk()).toBe(true);
     
     if (encryptedResult.isOk()) {
-      const decryptedResult = await decrypt(encryptedResult.value, testKey);
+      const decryptedResult = decrypt(encryptedResult.value, testKey);
       expect(decryptedResult.isOk()).toBe(true);
       
       if (decryptedResult.isOk()) {
@@ -26,7 +26,7 @@ describe("Crypto Module", () => {
     }
   });
 
-  it("should encrypt and decrypt JSON objects correctly", async () => {
+  it("should encrypt and decrypt JSON objects correctly", () => {
     const testData = {
       name: "Test User",
       email: "test@example.com",
@@ -36,11 +36,11 @@ describe("Crypto Module", () => {
       }
     };
     
-    const encryptedResult = await encryptJson(testData, testKey);
+    const encryptedResult = encryptJson(testData, testKey);
     expect(encryptedResult.isOk()).toBe(true);
     
     if (encryptedResult.isOk()) {
-      const decryptedResult = await decryptJson(encryptedResult.value, testKey);
+      const decryptedResult = decryptJson(encryptedResult.value, testKey);
       expect(decryptedResult.isOk()).toBe(true);
       
       if (decryptedResult.isOk()) {
@@ -49,23 +49,23 @@ describe("Crypto Module", () => {
     }
   });
 
-  it("should fail with invalid key", async () => {
+  it("should fail with invalid key", () => {
     const invalidKey = "invalid-key";
     const plaintext = "Test data";
     
-    const encryptedResult = await encrypt(plaintext, invalidKey);
+    const encryptedResult = encrypt(plaintext, invalidKey);
     expect(encryptedResult.isErr()).toBe(true);
   });
 
-  it("should fail decryption with wrong key", async () => {
+  it("should fail decryption with wrong key", () => {
     const plaintext = "Hello, World!";
     const wrongKey = generateEncryptionKey();
     
-    const encryptedResult = await encrypt(plaintext, testKey);
+    const encryptedResult = encrypt(plaintext, testKey);
     expect(encryptedResult.isOk()).toBe(true);
     
     if (encryptedResult.isOk()) {
-      const decryptedResult = await decrypt(encryptedResult.value, wrongKey);
+      const decryptedResult = decrypt(encryptedResult.value, wrongKey);
       expect(decryptedResult.isErr()).toBe(true);
     }
   });

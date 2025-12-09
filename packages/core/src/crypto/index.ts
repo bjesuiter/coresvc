@@ -52,10 +52,10 @@ function validateEncryptedData(data: EncryptedData): Result<void, Error> {
  * @param key - Optional encryption key (defaults to ENCRYPTION_KEY env var)
  * @returns Result with encrypted data (ciphertext + iv + tag) or error
  */
-export async function encrypt(
+export function encrypt(
   plaintext: string,
   key?: string
-): Promise<Result<EncryptedData, Error>> {
+): Result<EncryptedData, Error> {
   const encryptionKey = key || getEncryptionKey();
   
   // For AES-256-GCM, we need a 32-byte key
@@ -98,10 +98,10 @@ export async function encrypt(
  * @param key - Optional encryption key (defaults to ENCRYPTION_KEY env var)
  * @returns Result with decrypted plaintext or error
  */
-export async function decrypt(
+export function decrypt(
   encryptedData: EncryptedData,
   key?: string
-): Promise<Result<string, Error>> {
+): Result<string, Error> {
   // Validate encrypted data format before attempting decryption
   const validationResult = validateEncryptedData(encryptedData);
   if (validationResult.isErr()) {
@@ -148,13 +148,13 @@ export async function decrypt(
  * @param key - Optional encryption key (defaults to ENCRYPTION_KEY env var)
  * @returns Result with encrypted data or error
  */
-export async function encryptJson(
+export function encryptJson(
   data: any,
   key?: string
-): Promise<Result<EncryptedData, Error>> {
+): Result<EncryptedData, Error> {
   try {
     const jsonString = JSON.stringify(data);
-    return await encrypt(jsonString, key);
+    return encrypt(jsonString, key);
   } catch (error) {
     return err(error instanceof Error ? error : new Error(String(error)));
   }
@@ -166,12 +166,12 @@ export async function encryptJson(
  * @param key - Optional encryption key (defaults to ENCRYPTION_KEY env var)
  * @returns Result with parsed JSON object or error
  */
-export async function decryptJson<T = any>(
+export function decryptJson<T = any>(
   encryptedData: EncryptedData,
   key?: string
-): Promise<Result<T, Error>> {
+): Result<T, Error> {
   try {
-    const plaintextResult = await decrypt(encryptedData, key);
+    const plaintextResult = decrypt(encryptedData, key);
     if (plaintextResult.isErr()) {
       return err(plaintextResult.error);
     }
