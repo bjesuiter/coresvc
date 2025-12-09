@@ -8,6 +8,12 @@ export interface EncryptedData {
 }
 
 /**
+ * Maximum allowed plaintext size in bytes (64KB)
+ * Suitable for API keys and metadata while preventing DoS attacks
+ */
+const MAX_PLAINTEXT_SIZE = 64 * 1024; // 64KB
+
+/**
  * Gets the encryption key from environment variables
  */
 function getEncryptionKey(): string {
@@ -70,6 +76,16 @@ export function encrypt(
   plaintext: string,
   key?: string,
 ): Result<EncryptedData, Error> {
+  // Validate plaintext size to prevent DoS attacks
+  const plaintextSize = Buffer.byteLength(plaintext, "utf8");
+  if (plaintextSize > MAX_PLAINTEXT_SIZE) {
+    return err(
+      new Error(
+        `Plaintext exceeds maximum allowed size of ${MAX_PLAINTEXT_SIZE} bytes (got ${plaintextSize} bytes)`,
+      ),
+    );
+  }
+
   const encryptionKey = key || getEncryptionKey();
 
   // For AES-256-GCM, we need a 32-byte key

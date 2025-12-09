@@ -69,4 +69,16 @@ describe("Crypto Module", () => {
       expect(decryptedResult.isErr()).toBe(true);
     }
   });
+
+  it("should fail with plaintext exceeding size limit", () => {
+    // Create a string larger than 64KB
+    const largePlaintext = "x".repeat(65 * 1024); // 65KB
+    
+    const encryptedResult = encrypt(largePlaintext, testKey);
+    expect(encryptedResult.isErr()).toBe(true);
+    
+    if (encryptedResult.isErr()) {
+      expect(encryptedResult.error.message).toContain("exceeds maximum allowed size");
+    }
+  });
 });
