@@ -6,25 +6,22 @@
 packages/
   core/
     src/
-      db/           # Drizzle schema, migrations, connection
-      crypto/       # AES-256-GCM encrypt/decrypt helpers
-      services/     # Connected services CRUD
-      youtube/      # YouTube OAuth + API client
-      routes/       # Elysia route handlers
-      index.ts      # Server entry point
-  telegram/
-    src/
-      bot/          # grammY setup, commands
-      client/       # Eden client to core
-      index.ts      # Bot entry point
+      db/                     # Drizzle schema, migrations, connection
+      crypto/                 # AES-256-GCM encrypt/decrypt helpers
+      services/               # Connected services CRUD
+      youtube/                # YouTube OAuth + API client
+      interfaces/
+        rest/                 # Elysia route handlers (public REST API)
+        telegram/             # grammY bot (inline, no Eden client needed)
+      index.ts                # Server entry point (starts Elysia + bot)
 ```
 
 ## Data Flow
 
 ```
-User → Telegram Bot → Eden Client → Core Server → Postgres
-User → Swagger UI → Core Server → Postgres
-User → curl/Postman → Core Server → Postgres
+User → Telegram Bot → Core Server → SQLite
+User → Swagger UI → Core Server → SQLite
+User → curl/Postman → Core Server → SQLite
 ```
 
 ## OAuth Flow (SSE-based)
@@ -49,10 +46,9 @@ User → curl/Postman → Core Server → Postgres
 ## Phase 1: Monorepo Setup
 
 - [ ] **1.1** Initialize Bun workspaces in root `package.json`
-- [ ] **1.2** Create `packages/core` with Elysia, TypeScript config
-- [ ] **1.3** Create `packages/telegram` with grammY, TypeScript config
-- [ ] **1.4** Configure shared tsconfig base
-- [ ] **1.5** Add root scripts for dev/build/test
+- [ ] **1.2** Create `packages/core` with Elysia, grammY, TypeScript config
+- [ ] **1.3** Configure shared tsconfig base
+- [ ] **1.4** Add root scripts for dev/build/test
 
 ## Phase 2: Core Database Layer
 
@@ -106,21 +102,20 @@ User → curl/Postman → Core Server → Postgres
 - [ ] **7.3** Add request/response schemas to all routes
 - [ ] **7.4** Verify Swagger UI works at `/swagger`
 
-## Phase 8: Telegram Scaffolding
+## Phase 8: Telegram Interface
 
-- [ ] **8.1** Setup grammY bot with token from env
+- [ ] **8.1** Setup grammY bot in `src/interfaces/telegram/` with token from env
 - [ ] **8.2** Add `/start` command with welcome message
-- [ ] **8.3** Configure Eden client pointing to core (CORE_URL env)
-- [ ] **8.4** Add health check: bot calls core `/health` on startup
-- [ ] **8.5** Setup graceful shutdown
+- [ ] **8.3** Integrate bot startup into main `index.ts`
+- [ ] **8.4** Setup graceful shutdown for bot
 
 ## Phase 9: Deployment Prep
 
-- [ ] **9.1** Create Dockerfiles for core and telegram
+- [ ] **9.1** Create Dockerfile for core
 - [ ] **9.2** Add Railway config (railway.toml or nixpacks)
 - [ ] **9.3** Document required env vars
 - [ ] **9.4** Add health check endpoints
-- [ ] **9.5** Test local Docker compose setup
+- [ ] **9.5** Test local Docker setup
 
 ---
 
@@ -132,6 +127,5 @@ User → curl/Postman → Core Server → Postgres
 | `ENCRYPTION_KEY` | core | 32-byte base64 encoded key |
 | `YOUTUBE_CLIENT_ID` | core | Google OAuth client ID |
 | `YOUTUBE_CLIENT_SECRET` | core | Google OAuth client secret |
-| `CORE_URL` | telegram | URL to core service |
-| `TELEGRAM_BOT_TOKEN` | telegram | Bot token from BotFather |
+| `TELEGRAM_BOT_TOKEN` | core | Bot token from BotFather |
 | `PORT` | core | Server port (default 3000) |
