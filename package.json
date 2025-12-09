@@ -8,7 +8,10 @@
     "build": "bun --filter @coresvc/core build",
     "start": "bun --filter @coresvc/core start",
     "test": "bun --filter @coresvc/core test",
-    "clean": "bun --filter @coresvc/core clean"
+    "clean": "bun --filter @coresvc/core clean",
+    "db:generate": "bun --filter @coresvc/core db:generate",
+    "db:migrate": "bun --filter @coresvc/core db:migrate",
+    "db:studio": "bun --filter @coresvc/core db:studio"
   },
   "workspaces": [
     "packages/*"
