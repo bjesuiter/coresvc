@@ -79,3 +79,17 @@ Bun catalogs allow centralized dependency management in monorepos:
 - **Example**: Root defines `"dev": {"@types/node": "24.10.2"}`, packages use `"@types/node": "catalog:dev"`
 
 ---
+
+## Installing Packages
+
+If you need to install packages for one package:
+- install them in the package.json for this specific package, like core
+
+If you need to install node packages for multiple packages in the monorepo:
+- add them to a named catalog in the root package.json and reference them in the child packages via "catalog:<catalogName>"
+
+Check with context7 that you add the latest version of a library!
+
+After adding, run "bun i" in the repository root to install the dependencies.
+
+---
