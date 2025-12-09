@@ -28,15 +28,16 @@ export async function encrypt(
   plaintext: string,
   key?: string
 ): Promise<Result<EncryptedData, Error>> {
-  try {
-    const encryptionKey = key || getEncryptionKey();
-    
-    // For AES-256-GCM, we need a 32-byte key
-    const keyBuffer = Buffer.from(encryptionKey, 'base64');
-    if (keyBuffer.length !== 32) {
-      return err(new Error("Encryption key must be 32 bytes (base64 encoded)"));
-    }
+  const encryptionKey = key || getEncryptionKey();
+  
+  // For AES-256-GCM, we need a 32-byte key
+  const keyBuffer = Buffer.from(encryptionKey, 'base64');
+  if (keyBuffer.length !== 32) {
+    keyBuffer.fill(0); // Clean up key buffer even on error
+    return err(new Error("Encryption key must be 32 bytes (base64 encoded)"));
+  }
 
+  try {
     // Generate random IV (12 bytes recommended for GCM)
     const iv = randomBytes(12);
     
@@ -57,6 +58,9 @@ export async function encrypt(
     });
   } catch (error) {
     return err(error instanceof Error ? error : new Error(String(error)));
+  } finally {
+    // Always zero out the key buffer to prevent key material from remaining in memory
+    keyBuffer.fill(0);
   }
 }
 
@@ -70,15 +74,16 @@ export async function decrypt(
   encryptedData: EncryptedData,
   key?: string
 ): Promise<Result<string, Error>> {
-  try {
-    const encryptionKey = key || getEncryptionKey();
-    
-    // For AES-256-GCM, we need a 32-byte key
-    const keyBuffer = Buffer.from(encryptionKey, 'base64');
-    if (keyBuffer.length !== 32) {
-      return err(new Error("Encryption key must be 32 bytes (base64 encoded)"));
-    }
+  const encryptionKey = key || getEncryptionKey();
+  
+  // For AES-256-GCM, we need a 32-byte key
+  const keyBuffer = Buffer.from(encryptionKey, 'base64');
+  if (keyBuffer.length !== 32) {
+    keyBuffer.fill(0); // Clean up key buffer even on error
+    return err(new Error("Encryption key must be 32 bytes (base64 encoded)"));
+  }
 
+  try {
     // Create decipher
     const decipher = createDecipheriv(
       "aes-256-gcm",
@@ -87,6 +92,7 @@ export async function decrypt(
     );
     
     // Set the authentication tag
+    // Note: GCM mode's setAuthTag + final() performs timing-safe tag verification internally
     decipher.setAuthTag(Buffer.from(encryptedData.tag, "base64"));
     
     // Decrypt the data
@@ -96,6 +102,9 @@ export async function decrypt(
     return ok(plaintext);
   } catch (error) {
     return err(error instanceof Error ? error : new Error(String(error)));
+  } finally {
+    // Always zero out the key buffer to prevent key material from remaining in memory
+    keyBuffer.fill(0);
   }
 }
 
