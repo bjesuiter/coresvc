@@ -16,7 +16,7 @@
   "catalogs": {
     "dev": {
       "@types/bun": "latest",
-      "@types/node": "^24.0.0"
+      "@types/node": "24.10.2"
     }
   },
   "peerDependencies": {

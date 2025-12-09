@@ -61,3 +61,9 @@ needed.**
 Use `context7` tools: resolve library ID first, then fetch docs.
 
 ---
+
+## Dependency Management in package.json
+
+**EVERY dependency, except peerDependencies should be a fixed number!** Do not prefix them with ^ or ~ to ensure locked versions.
+
+---

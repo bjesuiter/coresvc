@@ -9,8 +9,8 @@
     "start": "bun dist/server.js"
   },
   "dependencies": {
-    "elysia": "^1.1.0",
-    "grammy": "^1.21.0"
+    "elysia": "1.1.0",
+    "grammy": "1.21.0"
   },
   "devDependencies": {
     "@types/bun": "catalog:dev",
