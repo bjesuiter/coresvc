@@ -4,7 +4,11 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun --filter @coresvc/core dev"
+    "dev": "bun --filter @coresvc/core dev",
+    "build": "bun --filter @coresvc/core build",
+    "start": "bun --filter @coresvc/core start",
+    "test": "bun --filter @coresvc/core test",
+    "clean": "bun --filter @coresvc/core clean"
   },
   "workspaces": [
     "packages/*"
