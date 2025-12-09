@@ -70,7 +70,24 @@ User → curl/Postman → Core Server → SQLite
 
 ## Phase 4: Authentication
 
-- [ ] **4.1** TODO: Plan authentication approach
+**Stack:** better-auth + Drizzle + SQLite, database sessions
+
+- [ ] **4.1** Add better-auth dependency
+- [ ] **4.2** Create better-auth Drizzle schema (users, sessions, accounts tables)
+- [ ] **4.3** Configure better-auth with email provider (no social login yet)
+- [ ] **4.4** Implement `POST /auth/registerAdmin`:
+  - Reads `ROOT_USER_EMAIL`, `ROOT_USER_LABEL`, `ROOT_USER_PASSWORD` from env
+  - Creates user if not exists
+  - `?force=true` overwrites existing user
+  - Called on first startup
+- [ ] **4.5** Implement `POST /auth/signin`:
+  - Validates credentials via better-auth
+  - Returns session cookie + structured body `{ sessionToken, expiresAt }`
+  - `?tokenOnly=true` returns only the token string
+- [ ] **4.6** Add auth middleware for protected routes
+- [ ] **4.7** Document new env vars: `ROOT_USER_EMAIL`, `ROOT_USER_LABEL`, `ROOT_USER_PASSWORD`
+
+**Future:** Social logins will link to existing accounts by email
 
 ## Phase 5: Connected Services
 
@@ -126,6 +143,9 @@ User → curl/Postman → Core Server → SQLite
 |----------|---------|-------------|
 | `DATABASE_PATH` | core | SQLite file path (default: ./data/core.db) |
 | `ENCRYPTION_KEY` | core | 32-byte base64 encoded key |
+| `ROOT_USER_EMAIL` | core | Admin user email for initial setup |
+| `ROOT_USER_LABEL` | core | Admin user display name |
+| `ROOT_USER_PASSWORD` | core | Admin user password |
 | `YOUTUBE_CLIENT_ID` | core | Google OAuth client ID |
 | `YOUTUBE_CLIENT_SECRET` | core | Google OAuth client secret |
 | `TELEGRAM_BOT_TOKEN` | core | Bot token from BotFather |
