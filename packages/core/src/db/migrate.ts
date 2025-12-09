@@ -1,15 +1,16 @@
 import { migrate } from 'drizzle-orm/libsql/migrator';
 import { getDb } from './index';
+import { ResultAsync } from 'neverthrow';
 
-async function runMigrations() {
-  const db = getDb();
-  
-  await migrate(db, {
-    migrationsFolder: './drizzle'
-  });
-  
-  console.log('Migrations completed');
-  process.exit(0);
+export function runMigrations() {
+  return ResultAsync.fromPromise(
+    (async () => {
+      const db = getDb();
+      await migrate(db, {
+        migrationsFolder: './drizzle'
+      });
+      return 'Migrations completed';
+    })(),
+    (error: unknown) => new Error(`Migration failed: ${error}`)
+  );
 }
-
-runMigrations().catch(console.error);

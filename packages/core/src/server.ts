@@ -1,21 +1,16 @@
-import { migrate } from 'drizzle-orm/libsql/migrator';
-import { getDb } from './db';
+import { runMigrations } from "./db/migrate";
 
 async function startServer() {
   console.log("Core service starting...");
-  
+
   // Run migrations on startup
-  try {
-    const db = getDb();
-    await migrate(db, {
-      migrationsFolder: './drizzle'
-    });
-    console.log('Migrations completed successfully');
-  } catch (error) {
-    console.error('Migration failed:', error);
+  const migrationResult = await runMigrations();
+  if (migrationResult.isErr()) {
+    console.error(migrationResult.error.message);
     process.exit(1);
   }
-  
+
+  console.log(migrationResult.value);
   console.log("Core service started successfully");
 }
 

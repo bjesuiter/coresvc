@@ -15,10 +15,11 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@libsql/client": "0.15.15",
+    "drizzle-orm": "0.45.0",
     "elysia": "1.1.0",
     "grammy": "1.21.0",
-    "drizzle-orm": "0.45.0",
-    "@libsql/client": "0.15.15"
+    "neverthrow": "^8.2.0"
   },
   "devDependencies": {
     "@types/node": "catalog:dev",
