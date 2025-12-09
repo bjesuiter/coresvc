@@ -26,23 +26,37 @@ function getEncryptionKey(): string {
 function validateEncryptedData(data: EncryptedData): Result<void, Error> {
   try {
     // Validate IV length (12 bytes = 16 base64 chars)
-    const ivBuffer = Buffer.from(data.iv, 'base64');
+    const ivBuffer = Buffer.from(data.iv, "base64");
     if (ivBuffer.length !== 12) {
-      return err(new Error(`Invalid IV length: expected 12 bytes, got ${ivBuffer.length}`));
+      return err(
+        new Error(
+          `Invalid IV length: expected 12 bytes, got ${ivBuffer.length}`,
+        ),
+      );
     }
-    
+
     // Validate tag length (16 bytes for GCM)
-    const tagBuffer = Buffer.from(data.tag, 'base64');
+    const tagBuffer = Buffer.from(data.tag, "base64");
     if (tagBuffer.length !== 16) {
-      return err(new Error(`Invalid authentication tag length: expected 16 bytes, got ${tagBuffer.length}`));
+      return err(
+        new Error(
+          `Invalid authentication tag length: expected 16 bytes, got ${tagBuffer.length}`,
+        ),
+      );
     }
-    
+
     // Validate ciphertext is valid base64 (will throw if invalid)
-    Buffer.from(data.ciphertext, 'base64');
-    
+    Buffer.from(data.ciphertext, "base64");
+
     return ok(undefined);
   } catch (error) {
-    return err(new Error(`Invalid encrypted data format: ${error instanceof Error ? error.message : String(error)}`));
+    return err(
+      new Error(
+        `Invalid encrypted data format: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      ),
+    );
   }
 }
 
@@ -54,12 +68,12 @@ function validateEncryptedData(data: EncryptedData): Result<void, Error> {
  */
 export function encrypt(
   plaintext: string,
-  key?: string
+  key?: string,
 ): Result<EncryptedData, Error> {
   const encryptionKey = key || getEncryptionKey();
-  
+
   // For AES-256-GCM, we need a 32-byte key
-  const keyBuffer = Buffer.from(encryptionKey, 'base64');
+  const keyBuffer = Buffer.from(encryptionKey, "base64");
   if (keyBuffer.length !== 32) {
     keyBuffer.fill(0); // Clean up key buffer even on error
     return err(new Error("Encryption key must be 32 bytes (base64 encoded)"));
@@ -68,17 +82,17 @@ export function encrypt(
   try {
     // Generate random IV (12 bytes recommended for GCM)
     const iv = randomBytes(12);
-    
+
     // Create cipher
     const cipher = createCipheriv("aes-256-gcm", keyBuffer, iv);
-    
+
     // Encrypt the data
     let ciphertext = cipher.update(plaintext, "utf8", "base64");
     ciphertext += cipher.final("base64");
-    
+
     // Get the authentication tag
     const tag = cipher.getAuthTag();
-    
+
     return ok({
       ciphertext,
       iv: iv.toString("base64"),
@@ -100,7 +114,7 @@ export function encrypt(
  */
 export function decrypt(
   encryptedData: EncryptedData,
-  key?: string
+  key?: string,
 ): Result<string, Error> {
   // Validate encrypted data format before attempting decryption
   const validationResult = validateEncryptedData(encryptedData);
@@ -109,9 +123,9 @@ export function decrypt(
   }
 
   const encryptionKey = key || getEncryptionKey();
-  
+
   // For AES-256-GCM, we need a 32-byte key
-  const keyBuffer = Buffer.from(encryptionKey, 'base64');
+  const keyBuffer = Buffer.from(encryptionKey, "base64");
   if (keyBuffer.length !== 32) {
     keyBuffer.fill(0); // Clean up key buffer even on error
     return err(new Error("Encryption key must be 32 bytes (base64 encoded)"));
@@ -122,17 +136,17 @@ export function decrypt(
     const decipher = createDecipheriv(
       "aes-256-gcm",
       keyBuffer,
-      Buffer.from(encryptedData.iv, "base64")
+      Buffer.from(encryptedData.iv, "base64"),
     );
-    
+
     // Set the authentication tag
     // Note: GCM mode's setAuthTag + final() performs timing-safe tag verification internally
     decipher.setAuthTag(Buffer.from(encryptedData.tag, "base64"));
-    
+
     // Decrypt the data
     let plaintext = decipher.update(encryptedData.ciphertext, "base64", "utf8");
     plaintext += decipher.final("utf8");
-    
+
     return ok(plaintext);
   } catch (error) {
     return err(error instanceof Error ? error : new Error(String(error)));
@@ -144,13 +158,15 @@ export function decrypt(
 
 /**
  * Encrypts a JSON object using AES-256-GCM
- * @param data - The object to encrypt
+ * @param data - The object to encrypt (must be JSON-serializable)
  * @param key - Optional encryption key (defaults to ENCRYPTION_KEY env var)
  * @returns Result with encrypted data or error
+ *
+ * TODO: Research: how to best type data as "JSON-serializable"?
  */
 export function encryptJson(
-  data: any,
-  key?: string
+  data: unknown,
+  key?: string,
 ): Result<EncryptedData, Error> {
   try {
     const jsonString = JSON.stringify(data);
@@ -165,17 +181,21 @@ export function encryptJson(
  * @param encryptedData - The encrypted data object
  * @param key - Optional encryption key (defaults to ENCRYPTION_KEY env var)
  * @returns Result with parsed JSON object or error
+ * @remarks The type parameter T defaults to unknown for type safety.
+ * Callers should provide an explicit type and validate the result.
+ *
+ * TODO: Research: how to best type data as "JSON-serializable"?
  */
-export function decryptJson<T = any>(
+export function decryptJson<T = unknown>(
   encryptedData: EncryptedData,
-  key?: string
+  key?: string,
 ): Result<T, Error> {
   try {
     const plaintextResult = decrypt(encryptedData, key);
     if (plaintextResult.isErr()) {
       return err(plaintextResult.error);
     }
-    
+
     const parsed = JSON.parse(plaintextResult.value) as T;
     return ok(parsed);
   } catch (error) {
