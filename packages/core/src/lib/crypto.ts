@@ -1,13 +1,13 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { err, ok, Result } from "neverthrow";
 
 /**
  * Represents encrypted data with all components needed for AES-256-GCM decryption
- * 
+ *
  * @property {string} ciphertext - Base64-encoded encrypted data
  * @property {string} iv - Base64-encoded initialization vector (12 bytes)
  * @property {string} tag - Base64-encoded authentication tag (16 bytes)
- * 
+ *
  * @example
  * ```typescript
  * const encrypted: EncryptedData = {
@@ -39,11 +39,11 @@ const MAX_PLAINTEXT_SIZE = 64 * 1024; // 64KB
 
 /**
  * Gets the encryption key from environment variables
- * 
+ *
  * @private
  * @throws {Error} When ENCRYPTION_KEY environment variable is not set
  * @returns {string} Base64-encoded encryption key
- * 
+ *
  * @remarks
  * This function throws instead of returning a Result because it's used internally
  * and key availability should fail fast during application startup.
@@ -58,14 +58,14 @@ function getEncryptionKey(): string {
 
 /**
  * Validates that encrypted data contains valid base64 strings with correct lengths
- * 
+ *
  * @private
  * @param {EncryptedData} data - The encrypted data to validate
  * @returns {Result<void, Error>} Result with void on success or error on validation failure
- * 
+ *
  * @errors
  * - "Invalid IV length: expected 12 bytes, got X" - IV has incorrect length
- * - "Invalid authentication tag length: expected 16 bytes, got X" - Tag has incorrect length  
+ * - "Invalid authentication tag length: expected 16 bytes, got X" - Tag has incorrect length
  * - "Invalid encrypted data format: ..." - Ciphertext is not valid base64
  */
 function validateEncryptedData(data: EncryptedData): Result<void, Error> {
@@ -107,11 +107,11 @@ function validateEncryptedData(data: EncryptedData): Result<void, Error> {
 
 /**
  * Encrypts plaintext using AES-256-GCM
- * 
+ *
  * @param {string} plaintext - The data to encrypt (UTF-8 encoded)
  * @param {string} [key] - Optional encryption key (defaults to ENCRYPTION_KEY env var)
  * @returns {Result<EncryptedData, Error>} Result with encrypted data (ciphertext + iv + tag) or error
- * 
+ *
  * @example
  * ```typescript
  * const result = encrypt("Hello, World!", "base64KeyHere...");
@@ -123,12 +123,12 @@ function validateEncryptedData(data: EncryptedData): Result<void, Error> {
  *   console.error("Encryption failed:", result.error.message);
  * }
  * ```
- * 
+ *
  * @errors
  * - "Plaintext exceeds maximum allowed size of 65536 bytes (got X bytes)" - Data too large
  * - "Encryption key must be 32 bytes (base64 encoded)" - Invalid key length
  * - "ENCRYPTION_KEY environment variable is required" - No key provided and no env var
- * 
+ *
  * @remarks
  * - Uses AES-256-GCM for authenticated encryption
  * - Generates a unique 12-byte IV for each encryption
@@ -191,11 +191,11 @@ export function encrypt(
 
 /**
  * Decrypts ciphertext using AES-256-GCM
- * 
+ *
  * @param {EncryptedData} encryptedData - The encrypted data object with ciphertext, iv, and tag
  * @param {string} [key] - Optional encryption key (defaults to ENCRYPTION_KEY env var)
  * @returns {Result<string, Error>} Result with decrypted plaintext or error
- * 
+ *
  * @example
  * ```typescript
  * const encrypted: EncryptedData = {
@@ -203,7 +203,7 @@ export function encrypt(
  *   iv: "base64IVHere...",
  *   tag: "base64TagHere..."
  * };
- * 
+ *
  * const result = decrypt(encrypted, "base64KeyHere...");
  * if (result.isOk()) {
  *   console.log("Decrypted:", result.value);
@@ -211,7 +211,7 @@ export function encrypt(
  *   console.error("Decryption failed:", result.error.message);
  * }
  * ```
- * 
+ *
  * @errors
  * - "Invalid IV length: expected 12 bytes, got X" - IV has incorrect length
  * - "Invalid authentication tag length: expected 16 bytes, got X" - Tag has incorrect length
@@ -219,7 +219,7 @@ export function encrypt(
  * - "Encryption key must be 32 bytes (base64 encoded)" - Invalid key length
  * - "ENCRYPTION_KEY environment variable is required" - No key provided and no env var
  * - Authentication errors from GCM mode if data is tampered
- * 
+ *
  * @remarks
  * - GCM mode provides authenticated encryption with associated data (AEAD)
  * - Authentication tag verification is timing-safe (handled internally by Node.js)
@@ -276,11 +276,11 @@ export function decrypt(
 
 /**
  * Encrypts a JSON object using AES-256-GCM
- * 
+ *
  * @param {unknown} data - The object to encrypt (must be JSON-serializable)
  * @param {string} [key] - Optional encryption key (defaults to ENCRYPTION_KEY env var)
  * @returns {Result<EncryptedData, Error>} Result with encrypted data or error
- * 
+ *
  * @example
  * ```typescript
  * const userData = {
@@ -288,7 +288,7 @@ export function decrypt(
  *   name: "John Doe",
  *   permissions: ["read", "write"]
  * };
- * 
+ *
  * const result = encryptJson(userData, "base64KeyHere...");
  * if (result.isOk()) {
  *   console.log("Encrypted JSON:", result.value.ciphertext);
@@ -296,18 +296,18 @@ export function decrypt(
  *   console.error("Encryption failed:", result.error.message);
  * }
  * ```
- * 
+ *
  * @errors
  * - "Plaintext exceeds maximum allowed size of 65536 bytes (got X bytes)" - Data too large
  * - "Encryption key must be 32 bytes (base64 encoded)" - Invalid key length
  * - "ENCRYPTION_KEY environment variable is required" - No key provided and no env var
  * - JSON serialization errors (e.g., circular references)
- * 
+ *
  * @remarks
  * - Uses JSON.stringify() internally - data must be JSON-serializable
  * - All encryption security features from encrypt() apply
  * - Consider the 64KB size limit when encrypting large objects
- * 
+ *
  * @see {@link encrypt} for underlying encryption details
  */
 export function encryptJson(
@@ -324,12 +324,12 @@ export function encryptJson(
 
 /**
  * Decrypts a JSON object using AES-256-GCM
- * 
+ *
  * @template T - The expected type of the decrypted data (defaults to unknown)
  * @param {EncryptedData} encryptedData - The encrypted data object
  * @param {string} [key] - Optional encryption key (defaults to ENCRYPTION_KEY env var)
  * @returns {Result<T, Error>} Result with parsed JSON object or error
- * 
+ *
  * @example
  * ```typescript
  * interface User {
@@ -337,7 +337,7 @@ export function encryptJson(
  *   name: string;
  *   permissions: string[];
  * }
- * 
+ *
  * const result = decryptJson<User>(encryptedData, "base64KeyHere...");
  * if (result.isOk()) {
  *   console.log("User ID:", result.value.id);
@@ -347,17 +347,17 @@ export function encryptJson(
  *   console.error("Decryption failed:", result.error.message);
  * }
  * ```
- * 
+ *
  * @errors
  * - All errors from decrypt() function (invalid data format, wrong key, etc.)
  * - JSON parsing errors (malformed JSON)
- * 
+ *
  * @remarks
  * - The type parameter T defaults to unknown for type safety
  * - Callers should provide an explicit type and validate the result
  * - Consider using a schema validation library for runtime type checking
  * - All decryption security features from decrypt() apply
- * 
+ *
  * @see {@link decrypt} for underlying decryption details
  */
 export function decryptJson<T = unknown>(
@@ -379,19 +379,19 @@ export function decryptJson<T = unknown>(
 
 /**
  * Generates a cryptographically secure key and returns it as base64
- * 
+ *
  * @returns {string} Base64-encoded 32-byte encryption key
- * 
+ *
  * @example
  * ```typescript
  * const key = generateEncryptionKey();
  * console.log("Generated key:", key);
  * // Store this securely as ENCRYPTION_KEY environment variable
- * 
+ *
  * // Use the key for encryption
  * const encrypted = encrypt("secret data", key);
  * ```
- * 
+ *
  * @remarks
  * - Uses cryptographically secure random number generation
  * - Generates exactly 32 bytes (256 bits) for AES-256
