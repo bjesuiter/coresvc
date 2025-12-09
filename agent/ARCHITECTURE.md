@@ -89,43 +89,43 @@ User → curl/Postman → Core Server → SQLite
 
 **Future:** Social logins will link to existing accounts by email
 
-## Phase 5: Connected Services
+## Phase 5: Telegram Interface
 
-- [ ] **5.1** Create service layer for connected services CRUD
-- [ ] **5.2** Implement `listServices()` - returns providers + connection status (no secrets)
-- [ ] **5.3** Implement `getServiceCredentials(provider)` - decrypts and returns
-- [ ] **5.4** Implement `saveServiceCredentials(provider, type, data)` - encrypts and stores
-- [ ] **5.5** Implement `deleteService(provider)` - removes connection
-- [ ] **5.6** Create Elysia routes:
+- [ ] **5.1** Setup grammY bot in `src/interfaces/telegram/` with token from env
+- [ ] **5.2** Add `/start` command with welcome message
+- [ ] **5.3** Integrate bot startup into main `index.ts`
+- [ ] **5.4** Setup graceful shutdown for bot
+
+## Phase 6: Connected Services
+
+- [ ] **6.1** Create service layer for connected services CRUD
+- [ ] **6.2** Implement `listServices()` - returns providers + connection status (no secrets)
+- [ ] **6.3** Implement `getServiceCredentials(provider)` - decrypts and returns
+- [ ] **6.4** Implement `saveServiceCredentials(provider, type, data)` - encrypts and stores
+- [ ] **6.5** Implement `deleteService(provider)` - removes connection
+- [ ] **6.6** Create Elysia routes:
   - `GET /services` - list all connected services
   - `DELETE /services/:provider` - disconnect a service
 
-## Phase 6: GitHub Integration
+## Phase 7: GitHub Integration
 
-- [ ] **6.1** TODO: Plan GitHub integration
+- [ ] **7.1** TODO: Plan GitHub integration
 
-## Phase 7: YouTube Integration
+## Phase 8: YouTube Integration
 
-- [ ] **7.1** Add YouTube OAuth config (client ID, secret, scopes, redirect URI)
-- [ ] **7.2** Implement YouTube OAuth provider (extends base OAuth flow)
-- [ ] **7.3** Create YouTube API client with token refresh logic
-- [ ] **7.4** Implement `getWatchLater()` - fetches playlist items, paginates, returns full list
-- [ ] **7.5** Create route `GET /youtube/watch-later` - returns JSON export
-- [ ] **7.6** Handle token expiry: auto-refresh, update stored tokens
+- [ ] **8.1** Add YouTube OAuth config (client ID, secret, scopes, redirect URI)
+- [ ] **8.2** Implement YouTube OAuth provider (extends base OAuth flow)
+- [ ] **8.3** Create YouTube API client with token refresh logic
+- [ ] **8.4** Implement `getWatchLater()` - fetches playlist items, paginates, returns full list
+- [ ] **8.5** Create route `GET /youtube/watch-later` - returns JSON export
+- [ ] **8.6** Handle token expiry: auto-refresh, update stored tokens
 
-## Phase 8: Swagger & Dev Experience
+## Phase 9: Swagger & Dev Experience
 
-- [ ] **8.1** Add `@elysiajs/swagger` plugin
-- [ ] **8.2** Configure OpenAPI metadata (title, version, description)
-- [ ] **8.3** Add request/response schemas to all routes
-- [ ] **8.4** Verify Swagger UI works at `/swagger`
-
-## Phase 9: Telegram Interface
-
-- [ ] **9.1** Setup grammY bot in `src/interfaces/telegram/` with token from env
-- [ ] **9.2** Add `/start` command with welcome message
-- [ ] **9.3** Integrate bot startup into main `index.ts`
-- [ ] **9.4** Setup graceful shutdown for bot
+- [ ] **9.1** Add `@elysiajs/swagger` plugin
+- [ ] **9.2** Configure OpenAPI metadata (title, version, description)
+- [ ] **9.3** Add request/response schemas to all routes
+- [ ] **9.4** Verify Swagger UI works at `/swagger`
 
 ## Phase 10: Deployment Prep
 
