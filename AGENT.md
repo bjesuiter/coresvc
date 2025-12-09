@@ -67,3 +67,15 @@ Use `context7` tools: resolve library ID first, then fetch docs.
 **EVERY dependency, except peerDependencies should be a fixed number!** Do not prefix them with ^ or ~ to ensure locked versions.
 
 ---
+
+## Bun Catalogs
+
+Bun catalogs allow centralized dependency management in monorepos:
+
+- **Definition**: Root `package.json` defines named catalogs in `"catalogs"` section
+- **Caution**: the property "catalog" (without s) does also exist, but we're not using it right now! We only have one catalog right now, called "dev". 
+- **Usage**: Workspace packages reference catalog entries with `"catalog:name"` syntax
+- **Benefits**: Single source of truth for shared dependencies, consistent versions across workspaces
+- **Example**: Root defines `"dev": {"@types/node": "24.10.2"}`, packages use `"@types/node": "catalog:dev"`
+
+---
