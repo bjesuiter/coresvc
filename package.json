@@ -3,11 +3,21 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "dev": "bun --filter @coresvc/core dev"
+  },
   "workspaces": [
     "packages/*"
   ],
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "catalog:dev",
+    "@types/node": "catalog:dev"
+  },
+  "catalogs": {
+    "dev": {
+      "@types/bun": "latest",
+      "@types/node": "^24.0.0"
+    }
   },
   "peerDependencies": {
     "typescript": "^5"

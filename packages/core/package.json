@@ -1,0 +1,22 @@
+{
+  "name": "@coresvc/core",
+  "version": "0.1.0",
+  "module": "src/server.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/server.ts",
+    "build": "bun build src/server.ts --outdir dist --target bun",
+    "start": "bun dist/server.js"
+  },
+  "dependencies": {
+    "elysia": "^1.1.0",
+    "grammy": "^1.21.0"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:dev",
+    "@types/node": "catalog:dev"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
