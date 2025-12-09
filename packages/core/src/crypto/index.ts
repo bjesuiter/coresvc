@@ -4,7 +4,6 @@ import { err, ok, Result } from "neverthrow";
 /**
  * Represents encrypted data with all components needed for AES-256-GCM decryption
  * 
- * @interface EncryptedData
  * @property {string} ciphertext - Base64-encoded encrypted data
  * @property {string} iv - Base64-encoded initialization vector (12 bytes)
  * @property {string} tag - Base64-encoded authentication tag (16 bytes)
@@ -308,6 +307,8 @@ export function decrypt(
  * - Uses JSON.stringify() internally - data must be JSON-serializable
  * - All encryption security features from encrypt() apply
  * - Consider the 64KB size limit when encrypting large objects
+ * 
+ * @see {@link encrypt} for underlying encryption details
  */
 export function encryptJson(
   data: unknown,
@@ -356,6 +357,8 @@ export function encryptJson(
  * - Callers should provide an explicit type and validate the result
  * - Consider using a schema validation library for runtime type checking
  * - All decryption security features from decrypt() apply
+ * 
+ * @see {@link decrypt} for underlying decryption details
  */
 export function decryptJson<T = unknown>(
   encryptedData: EncryptedData,
