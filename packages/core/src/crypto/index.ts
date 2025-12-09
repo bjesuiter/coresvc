@@ -8,6 +8,14 @@ export interface EncryptedData {
 }
 
 /**
+ * Cryptographic constants for AES-256-GCM encryption
+ */
+const ALGORITHM = "aes-256-gcm" as const;
+const KEY_LENGTH = 32; // 32 bytes for AES-256
+const IV_LENGTH = 12; // 12 bytes recommended for GCM
+const TAG_LENGTH = 16; // 16 bytes for GCM authentication tag
+
+/**
  * Maximum allowed plaintext size in bytes (64KB)
  * Suitable for API keys and metadata while preventing DoS attacks
  */
@@ -31,22 +39,22 @@ function getEncryptionKey(): string {
  */
 function validateEncryptedData(data: EncryptedData): Result<void, Error> {
   try {
-    // Validate IV length (12 bytes = 16 base64 chars)
+    // Validate IV length
     const ivBuffer = Buffer.from(data.iv, "base64");
-    if (ivBuffer.length !== 12) {
+    if (ivBuffer.length !== IV_LENGTH) {
       return err(
         new Error(
-          `Invalid IV length: expected 12 bytes, got ${ivBuffer.length}`,
+          `Invalid IV length: expected ${IV_LENGTH} bytes, got ${ivBuffer.length}`,
         ),
       );
     }
 
-    // Validate tag length (16 bytes for GCM)
+    // Validate tag length
     const tagBuffer = Buffer.from(data.tag, "base64");
-    if (tagBuffer.length !== 16) {
+    if (tagBuffer.length !== TAG_LENGTH) {
       return err(
         new Error(
-          `Invalid authentication tag length: expected 16 bytes, got ${tagBuffer.length}`,
+          `Invalid authentication tag length: expected ${TAG_LENGTH} bytes, got ${tagBuffer.length}`,
         ),
       );
     }
@@ -88,19 +96,23 @@ export function encrypt(
 
   const encryptionKey = key || getEncryptionKey();
 
-  // For AES-256-GCM, we need a 32-byte key
+  // Validate key length
   const keyBuffer = Buffer.from(encryptionKey, "base64");
-  if (keyBuffer.length !== 32) {
+  if (keyBuffer.length !== KEY_LENGTH) {
     keyBuffer.fill(0); // Clean up key buffer even on error
-    return err(new Error("Encryption key must be 32 bytes (base64 encoded)"));
+    return err(
+      new Error(
+        `Encryption key must be ${KEY_LENGTH} bytes (base64 encoded)`,
+      ),
+    );
   }
 
   try {
-    // Generate random IV (12 bytes recommended for GCM)
-    const iv = randomBytes(12);
+    // Generate random IV
+    const iv = randomBytes(IV_LENGTH);
 
     // Create cipher
-    const cipher = createCipheriv("aes-256-gcm", keyBuffer, iv);
+    const cipher = createCipheriv(ALGORITHM, keyBuffer, iv);
 
     // Encrypt the data
     let ciphertext = cipher.update(plaintext, "utf8", "base64");
@@ -140,17 +152,21 @@ export function decrypt(
 
   const encryptionKey = key || getEncryptionKey();
 
-  // For AES-256-GCM, we need a 32-byte key
+  // Validate key length
   const keyBuffer = Buffer.from(encryptionKey, "base64");
-  if (keyBuffer.length !== 32) {
+  if (keyBuffer.length !== KEY_LENGTH) {
     keyBuffer.fill(0); // Clean up key buffer even on error
-    return err(new Error("Encryption key must be 32 bytes (base64 encoded)"));
+    return err(
+      new Error(
+        `Encryption key must be ${KEY_LENGTH} bytes (base64 encoded)`,
+      ),
+    );
   }
 
   try {
     // Create decipher
     const decipher = createDecipheriv(
-      "aes-256-gcm",
+      ALGORITHM,
       keyBuffer,
       Buffer.from(encryptedData.iv, "base64"),
     );
@@ -220,9 +236,9 @@ export function decryptJson<T = unknown>(
 }
 
 /**
- * Generates a cryptographically secure 32-byte key and returns it as base64
+ * Generates a cryptographically secure key and returns it as base64
  * This can be used to generate the ENCRYPTION_KEY environment variable
  */
 export function generateEncryptionKey(): string {
-  return randomBytes(32).toString("base64");
+  return randomBytes(KEY_LENGTH).toString("base64");
 }
