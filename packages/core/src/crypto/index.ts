@@ -19,6 +19,34 @@ function getEncryptionKey(): string {
 }
 
 /**
+ * Validates that encrypted data contains valid base64 strings with correct lengths
+ * @param data - The encrypted data to validate
+ * @returns Result with void on success or error on validation failure
+ */
+function validateEncryptedData(data: EncryptedData): Result<void, Error> {
+  try {
+    // Validate IV length (12 bytes = 16 base64 chars)
+    const ivBuffer = Buffer.from(data.iv, 'base64');
+    if (ivBuffer.length !== 12) {
+      return err(new Error(`Invalid IV length: expected 12 bytes, got ${ivBuffer.length}`));
+    }
+    
+    // Validate tag length (16 bytes for GCM)
+    const tagBuffer = Buffer.from(data.tag, 'base64');
+    if (tagBuffer.length !== 16) {
+      return err(new Error(`Invalid authentication tag length: expected 16 bytes, got ${tagBuffer.length}`));
+    }
+    
+    // Validate ciphertext is valid base64 (will throw if invalid)
+    Buffer.from(data.ciphertext, 'base64');
+    
+    return ok(undefined);
+  } catch (error) {
+    return err(new Error(`Invalid encrypted data format: ${error instanceof Error ? error.message : String(error)}`));
+  }
+}
+
+/**
  * Encrypts plaintext using AES-256-GCM
  * @param plaintext - The data to encrypt
  * @param key - Optional encryption key (defaults to ENCRYPTION_KEY env var)
@@ -74,6 +102,12 @@ export async function decrypt(
   encryptedData: EncryptedData,
   key?: string
 ): Promise<Result<string, Error>> {
+  // Validate encrypted data format before attempting decryption
+  const validationResult = validateEncryptedData(encryptedData);
+  if (validationResult.isErr()) {
+    return err(validationResult.error);
+  }
+
   const encryptionKey = key || getEncryptionKey();
   
   // For AES-256-GCM, we need a 32-byte key
