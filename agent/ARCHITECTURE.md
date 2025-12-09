@@ -8,8 +8,10 @@ packages/
     src/
       db/                     # Drizzle schema, migrations, connection
       crypto/                 # AES-256-GCM encrypt/decrypt helpers
-      services/               # Connected services CRUD
-      youtube/                # YouTube OAuth + API client
+      services/
+        crud/                 # Connected services CRUD operations
+        youtube/              # YouTube OAuth + API client
+        github/               # GitHub OAuth + API client
       interfaces/
         rest/                 # Elysia route handlers (public REST API)
         telegram/             # grammY bot (inline, no Eden client needed)
