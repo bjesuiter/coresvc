@@ -6,6 +6,14 @@ import {
   encryptJson,
   generateEncryptionKey,
 } from "./crypto";
+import {
+  DecryptionFailedError,
+  InvalidAuthTagLengthError,
+  InvalidBase64FormatError,
+  InvalidIvLengthError,
+  InvalidKeyLengthError,
+  PlaintextTooLargeError,
+} from "./crypto.errors";
 
 describe("Crypto Module", () => {
   const testKey = generateEncryptionKey();
@@ -61,6 +69,11 @@ describe("Crypto Module", () => {
 
     const encryptedResult = encrypt(plaintext, invalidKey);
     expect(encryptedResult.isErr()).toBe(true);
+
+    if (encryptedResult.isErr()) {
+      expect(encryptedResult.error).toBeInstanceOf(InvalidKeyLengthError);
+      expect(encryptedResult.error.type).toBe("INVALID_KEY_LENGTH");
+    }
   });
 
   it("should fail decryption with wrong key", () => {
@@ -73,6 +86,12 @@ describe("Crypto Module", () => {
     if (encryptedResult.isOk()) {
       const decryptedResult = decrypt(encryptedResult.value, wrongKey);
       expect(decryptedResult.isErr()).toBe(true);
+
+      if (decryptedResult.isErr()) {
+        expect(decryptedResult.error).toBeInstanceOf(DecryptionFailedError);
+        expect(decryptedResult.error.type).toBe("DECRYPTION_FAILED");
+        expect(decryptedResult.error.cause).toBeInstanceOf(Error);
+      }
     }
   });
 
@@ -84,9 +103,14 @@ describe("Crypto Module", () => {
     expect(encryptedResult.isErr()).toBe(true);
 
     if (encryptedResult.isErr()) {
-      expect(encryptedResult.error.message).toContain(
-        "exceeds maximum allowed size",
-      );
+      const error = encryptedResult.error;
+      expect(error).toBeInstanceOf(PlaintextTooLargeError);
+      expect(error.type).toBe("PLAINTEXT_TOO_LARGE");
+
+      if (error.type === "PLAINTEXT_TOO_LARGE") {
+        expect(error.maxSize).toBe(64 * 1024);
+        expect(error.actualSize).toBe(65 * 1024);
+      }
     }
   });
 
@@ -163,6 +187,11 @@ describe("Crypto Module", () => {
 
           const decryptedResult = decrypt(tamperedData, testKey);
           expect(decryptedResult.isErr()).toBe(true);
+
+          if (decryptedResult.isErr()) {
+            expect(decryptedResult.error).toBeInstanceOf(DecryptionFailedError);
+            expect(decryptedResult.error.type).toBe("DECRYPTION_FAILED");
+          }
         }
       });
 
@@ -185,6 +214,11 @@ describe("Crypto Module", () => {
 
           const decryptedResult = decrypt(tamperedData, testKey);
           expect(decryptedResult.isErr()).toBe(true);
+
+          if (decryptedResult.isErr()) {
+            expect(decryptedResult.error).toBeInstanceOf(DecryptionFailedError);
+            expect(decryptedResult.error.type).toBe("DECRYPTION_FAILED");
+          }
         }
       });
 
@@ -207,6 +241,11 @@ describe("Crypto Module", () => {
 
           const decryptedResult = decrypt(tamperedData, testKey);
           expect(decryptedResult.isErr()).toBe(true);
+
+          if (decryptedResult.isErr()) {
+            expect(decryptedResult.error).toBeInstanceOf(DecryptionFailedError);
+            expect(decryptedResult.error.type).toBe("DECRYPTION_FAILED");
+          }
         }
       });
     });
@@ -221,6 +260,14 @@ describe("Crypto Module", () => {
 
         const decryptedResult = decrypt(invalidData, testKey);
         expect(decryptedResult.isErr()).toBe(true);
+
+        // Note: Node.js Buffer.from with base64 is lenient and doesn't throw on invalid chars,
+        // so this will likely fail during decryption rather than validation
+        if (decryptedResult.isErr()) {
+          expect(decryptedResult.error.type).toMatch(
+            /DECRYPTION_FAILED|INVALID_BASE64_FORMAT/,
+          );
+        }
       });
 
       it("should reject invalid IV length", () => {
@@ -238,9 +285,14 @@ describe("Crypto Module", () => {
           expect(decryptedResult.isErr()).toBe(true);
 
           if (decryptedResult.isErr()) {
-            expect(decryptedResult.error.message).toContain(
-              "Invalid IV length",
-            );
+            const error = decryptedResult.error;
+            expect(error).toBeInstanceOf(InvalidIvLengthError);
+            expect(error.type).toBe("INVALID_IV_LENGTH");
+
+            if (error.type === "INVALID_IV_LENGTH") {
+              expect(error.expectedLength).toBe(12);
+              expect(error.actualLength).toBe(8);
+            }
           }
         }
       });
@@ -260,9 +312,14 @@ describe("Crypto Module", () => {
           expect(decryptedResult.isErr()).toBe(true);
 
           if (decryptedResult.isErr()) {
-            expect(decryptedResult.error.message).toContain(
-              "Invalid authentication tag length",
-            );
+            const error = decryptedResult.error;
+            expect(error).toBeInstanceOf(InvalidAuthTagLengthError);
+            expect(error.type).toBe("INVALID_AUTH_TAG_LENGTH");
+
+            if (error.type === "INVALID_AUTH_TAG_LENGTH") {
+              expect(error.expectedLength).toBe(16);
+              expect(error.actualLength).toBe(8);
+            }
           }
         }
       });
