@@ -1,12 +1,10 @@
 import { migrate } from 'drizzle-orm/libsql/migrator';
-import { getDatabase } from './connection';
-import { drizzle } from 'drizzle-orm/libsql';
+import { getDb } from './index';
 
 async function runMigrations() {
-  const { client } = getDatabase();
-  const drizzleDb = drizzle(client);
+  const db = getDb();
   
-  await migrate(drizzleDb, {
+  await migrate(db, {
     migrationsFolder: './drizzle'
   });
   
