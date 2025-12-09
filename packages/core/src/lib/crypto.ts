@@ -1,5 +1,24 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { err, ok, Result } from "neverthrow";
+import type {
+  DecryptErrorUnion,
+  DecryptJsonErrorUnion,
+  EncryptedDataValidationError,
+  EncryptErrorUnion,
+  EncryptJsonErrorUnion,
+} from "./crypto.errors";
+import {
+  DecryptionFailedError,
+  EncryptionFailedError,
+  InvalidAuthTagLengthError,
+  InvalidBase64FormatError,
+  InvalidIvLengthError,
+  InvalidKeyLengthError,
+  JsonParseFailedError,
+  JsonSerializationFailedError,
+  MissingEncryptionKeyError,
+  PlaintextTooLargeError,
+} from "./crypto.errors";
 
 /**
  * Represents encrypted data with all components needed for AES-256-GCM decryption
@@ -41,19 +60,14 @@ const MAX_PLAINTEXT_SIZE = 64 * 1024; // 64KB
  * Gets the encryption key from environment variables
  *
  * @private
- * @throws {Error} When ENCRYPTION_KEY environment variable is not set
- * @returns {string} Base64-encoded encryption key
- *
- * @remarks
- * This function throws instead of returning a Result because it's used internally
- * and key availability should fail fast during application startup.
+ * @returns {Result<string, MissingEncryptionKeyError>} Result with base64-encoded encryption key or error
  */
-function getEncryptionKey(): string {
+function getEncryptionKey(): Result<string, MissingEncryptionKeyError> {
   const key = process.env.ENCRYPTION_KEY;
   if (!key) {
-    throw new Error("ENCRYPTION_KEY environment variable is required");
+    return err(new MissingEncryptionKeyError());
   }
-  return key;
+  return ok(key);
 }
 
 /**
@@ -61,48 +75,61 @@ function getEncryptionKey(): string {
  *
  * @private
  * @param {EncryptedData} data - The encrypted data to validate
- * @returns {Result<void, Error>} Result with void on success or error on validation failure
+ * @returns {Result<void, ValidationError>} Result with void on success or error on validation failure
  *
  * @errors
- * - "Invalid IV length: expected 12 bytes, got X" - IV has incorrect length
- * - "Invalid authentication tag length: expected 16 bytes, got X" - Tag has incorrect length
- * - "Invalid encrypted data format: ..." - Ciphertext is not valid base64
+ * - InvalidIvLengthError - IV has incorrect length
+ * - InvalidAuthTagLengthError - Tag has incorrect length
+ * - InvalidBase64FormatError - Ciphertext is not valid base64
  */
-function validateEncryptedData(data: EncryptedData): Result<void, Error> {
+function validateEncryptedData(
+  data: EncryptedData,
+): Result<void, EncryptedDataValidationError> {
+  // Validate IV - check base64 format first
+  let ivBuffer: Buffer;
   try {
-    // Validate IV length
-    const ivBuffer = Buffer.from(data.iv, "base64");
-    if (ivBuffer.length !== IV_LENGTH) {
-      return err(
-        new Error(
-          `Invalid IV length: expected ${IV_LENGTH} bytes, got ${ivBuffer.length}`,
-        ),
-      );
-    }
-
-    // Validate tag length
-    const tagBuffer = Buffer.from(data.tag, "base64");
-    if (tagBuffer.length !== TAG_LENGTH) {
-      return err(
-        new Error(
-          `Invalid authentication tag length: expected ${TAG_LENGTH} bytes, got ${tagBuffer.length}`,
-        ),
-      );
-    }
-
-    // Validate ciphertext is valid base64 (will throw if invalid)
-    Buffer.from(data.ciphertext, "base64");
-
-    return ok(undefined);
+    ivBuffer = Buffer.from(data.iv, "base64");
   } catch (error) {
     return err(
-      new Error(
-        `Invalid encrypted data format: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+      new InvalidBase64FormatError(
+        "iv",
+        error instanceof Error ? error : undefined,
       ),
     );
   }
+  if (ivBuffer.length !== IV_LENGTH) {
+    return err(new InvalidIvLengthError(IV_LENGTH, ivBuffer.length));
+  }
+
+  // Validate tag - check base64 format first
+  let tagBuffer: Buffer;
+  try {
+    tagBuffer = Buffer.from(data.tag, "base64");
+  } catch (error) {
+    return err(
+      new InvalidBase64FormatError(
+        "tag",
+        error instanceof Error ? error : undefined,
+      ),
+    );
+  }
+  if (tagBuffer.length !== TAG_LENGTH) {
+    return err(new InvalidAuthTagLengthError(TAG_LENGTH, tagBuffer.length));
+  }
+
+  // Validate ciphertext is valid base64
+  try {
+    Buffer.from(data.ciphertext, "base64");
+  } catch (error) {
+    return err(
+      new InvalidBase64FormatError(
+        "ciphertext",
+        error instanceof Error ? error : undefined,
+      ),
+    );
+  }
+
+  return ok(undefined);
 }
 
 /**
@@ -110,7 +137,7 @@ function validateEncryptedData(data: EncryptedData): Result<void, Error> {
  *
  * @param {string} plaintext - The data to encrypt (UTF-8 encoded)
  * @param {string} [key] - Optional encryption key (defaults to ENCRYPTION_KEY env var)
- * @returns {Result<EncryptedData, Error>} Result with encrypted data (ciphertext + iv + tag) or error
+ * @returns {Result<EncryptedData, EncryptErrorUnion>} Result with encrypted data (ciphertext + iv + tag) or error
  *
  * @example
  * ```typescript
@@ -120,14 +147,23 @@ function validateEncryptedData(data: EncryptedData): Result<void, Error> {
  *   console.log("IV:", result.value.iv);
  *   console.log("Tag:", result.value.tag);
  * } else {
- *   console.error("Encryption failed:", result.error.message);
+ *   switch (result.error.type) {
+ *     case 'PLAINTEXT_TOO_LARGE':
+ *       console.error(`Data too large: ${result.error.actualSize} > ${result.error.maxSize}`);
+ *       break;
+ *     case 'INVALID_KEY_LENGTH':
+ *       console.error(`Key must be ${result.error.expectedLength} bytes`);
+ *       break;
+ *     // ... handle other cases
+ *   }
  * }
  * ```
  *
  * @errors
- * - "Plaintext exceeds maximum allowed size of 65536 bytes (got X bytes)" - Data too large
- * - "Encryption key must be 32 bytes (base64 encoded)" - Invalid key length
- * - "ENCRYPTION_KEY environment variable is required" - No key provided and no env var
+ * - PlaintextTooLargeError - Data exceeds maximum allowed size (64KB)
+ * - InvalidKeyLengthError - Key is not 32 bytes
+ * - MissingEncryptionKeyError - No key provided and ENCRYPTION_KEY env var not set
+ * - EncryptionFailedError - Unexpected encryption failure
  *
  * @remarks
  * - Uses AES-256-GCM for authenticated encryption
@@ -138,28 +174,29 @@ function validateEncryptedData(data: EncryptedData): Result<void, Error> {
 export function encrypt(
   plaintext: string,
   key?: string,
-): Result<EncryptedData, Error> {
+): Result<EncryptedData, EncryptErrorUnion> {
   // Validate plaintext size to prevent DoS attacks
   const plaintextSize = Buffer.byteLength(plaintext, "utf8");
   if (plaintextSize > MAX_PLAINTEXT_SIZE) {
-    return err(
-      new Error(
-        `Plaintext exceeds maximum allowed size of ${MAX_PLAINTEXT_SIZE} bytes (got ${plaintextSize} bytes)`,
-      ),
-    );
+    return err(new PlaintextTooLargeError(MAX_PLAINTEXT_SIZE, plaintextSize));
   }
 
-  const encryptionKey = key || getEncryptionKey();
+  let encryptionKey: string;
+  if (key) {
+    encryptionKey = key;
+  } else {
+    const keyResult = getEncryptionKey();
+    if (keyResult.isErr()) {
+      return err(keyResult.error);
+    }
+    encryptionKey = keyResult.value;
+  }
 
   // Validate key length
   const keyBuffer = Buffer.from(encryptionKey, "base64");
   if (keyBuffer.length !== KEY_LENGTH) {
     keyBuffer.fill(0); // Clean up key buffer even on error
-    return err(
-      new Error(
-        `Encryption key must be ${KEY_LENGTH} bytes (base64 encoded)`,
-      ),
-    );
+    return err(new InvalidKeyLengthError(KEY_LENGTH, keyBuffer.length));
   }
 
   try {
@@ -182,7 +219,11 @@ export function encrypt(
       tag: tag.toString("base64"),
     });
   } catch (error) {
-    return err(error instanceof Error ? error : new Error(String(error)));
+    return err(
+      new EncryptionFailedError(
+        error instanceof Error ? error : new Error(String(error)),
+      ),
+    );
   } finally {
     // Always zero out the key buffer to prevent key material from remaining in memory
     keyBuffer.fill(0);
@@ -194,7 +235,7 @@ export function encrypt(
  *
  * @param {EncryptedData} encryptedData - The encrypted data object with ciphertext, iv, and tag
  * @param {string} [key] - Optional encryption key (defaults to ENCRYPTION_KEY env var)
- * @returns {Result<string, Error>} Result with decrypted plaintext or error
+ * @returns {Result<string, DecryptErrorUnion>} Result with decrypted plaintext or error
  *
  * @example
  * ```typescript
@@ -208,17 +249,25 @@ export function encrypt(
  * if (result.isOk()) {
  *   console.log("Decrypted:", result.value);
  * } else {
- *   console.error("Decryption failed:", result.error.message);
+ *   switch (result.error.type) {
+ *     case 'INVALID_IV_LENGTH':
+ *       console.error(`IV must be ${result.error.expectedLength} bytes`);
+ *       break;
+ *     case 'DECRYPTION_FAILED':
+ *       console.error(`Decryption failed: ${result.error.cause.message}`);
+ *       break;
+ *     // ... handle other cases
+ *   }
  * }
  * ```
  *
  * @errors
- * - "Invalid IV length: expected 12 bytes, got X" - IV has incorrect length
- * - "Invalid authentication tag length: expected 16 bytes, got X" - Tag has incorrect length
- * - "Invalid encrypted data format: ..." - Ciphertext is not valid base64
- * - "Encryption key must be 32 bytes (base64 encoded)" - Invalid key length
- * - "ENCRYPTION_KEY environment variable is required" - No key provided and no env var
- * - Authentication errors from GCM mode if data is tampered
+ * - InvalidIvLengthError - IV has incorrect length
+ * - InvalidAuthTagLengthError - Tag has incorrect length
+ * - InvalidBase64FormatError - Ciphertext, IV, or tag is not valid base64
+ * - InvalidKeyLengthError - Key is not 32 bytes
+ * - MissingEncryptionKeyError - No key provided and ENCRYPTION_KEY env var not set
+ * - DecryptionFailedError - Decryption failed (wrong key, tampered data, etc.)
  *
  * @remarks
  * - GCM mode provides authenticated encryption with associated data (AEAD)
@@ -229,24 +278,29 @@ export function encrypt(
 export function decrypt(
   encryptedData: EncryptedData,
   key?: string,
-): Result<string, Error> {
+): Result<string, DecryptErrorUnion> {
   // Validate encrypted data format before attempting decryption
   const validationResult = validateEncryptedData(encryptedData);
   if (validationResult.isErr()) {
     return err(validationResult.error);
   }
 
-  const encryptionKey = key || getEncryptionKey();
+  let encryptionKey: string;
+  if (key) {
+    encryptionKey = key;
+  } else {
+    const keyResult = getEncryptionKey();
+    if (keyResult.isErr()) {
+      return err(keyResult.error);
+    }
+    encryptionKey = keyResult.value;
+  }
 
   // Validate key length
   const keyBuffer = Buffer.from(encryptionKey, "base64");
   if (keyBuffer.length !== KEY_LENGTH) {
     keyBuffer.fill(0); // Clean up key buffer even on error
-    return err(
-      new Error(
-        `Encryption key must be ${KEY_LENGTH} bytes (base64 encoded)`,
-      ),
-    );
+    return err(new InvalidKeyLengthError(KEY_LENGTH, keyBuffer.length));
   }
 
   try {
@@ -267,7 +321,11 @@ export function decrypt(
 
     return ok(plaintext);
   } catch (error) {
-    return err(error instanceof Error ? error : new Error(String(error)));
+    return err(
+      new DecryptionFailedError(
+        error instanceof Error ? error : new Error(String(error)),
+      ),
+    );
   } finally {
     // Always zero out the key buffer to prevent key material from remaining in memory
     keyBuffer.fill(0);
@@ -279,7 +337,7 @@ export function decrypt(
  *
  * @param {unknown} data - The object to encrypt (must be JSON-serializable)
  * @param {string} [key] - Optional encryption key (defaults to ENCRYPTION_KEY env var)
- * @returns {Result<EncryptedData, Error>} Result with encrypted data or error
+ * @returns {Result<EncryptedData, EncryptJsonErrorUnion>} Result with encrypted data or error
  *
  * @example
  * ```typescript
@@ -293,15 +351,21 @@ export function decrypt(
  * if (result.isOk()) {
  *   console.log("Encrypted JSON:", result.value.ciphertext);
  * } else {
- *   console.error("Encryption failed:", result.error.message);
+ *   switch (result.error.type) {
+ *     case 'JSON_SERIALIZATION_FAILED':
+ *       console.error(`Cannot serialize: ${result.error.cause.message}`);
+ *       break;
+ *     // ... handle other encryption errors
+ *   }
  * }
  * ```
  *
  * @errors
- * - "Plaintext exceeds maximum allowed size of 65536 bytes (got X bytes)" - Data too large
- * - "Encryption key must be 32 bytes (base64 encoded)" - Invalid key length
- * - "ENCRYPTION_KEY environment variable is required" - No key provided and no env var
- * - JSON serialization errors (e.g., circular references)
+ * - JsonSerializationFailedError - Data cannot be serialized (circular references, BigInt, etc.)
+ * - PlaintextTooLargeError - Serialized JSON exceeds maximum allowed size (64KB)
+ * - InvalidKeyLengthError - Key is not 32 bytes
+ * - MissingEncryptionKeyError - No key provided and ENCRYPTION_KEY env var not set
+ * - EncryptionFailedError - Unexpected encryption failure
  *
  * @remarks
  * - Uses JSON.stringify() internally - data must be JSON-serializable
@@ -313,13 +377,18 @@ export function decrypt(
 export function encryptJson(
   data: unknown,
   key?: string,
-): Result<EncryptedData, Error> {
+): Result<EncryptedData, EncryptJsonErrorUnion> {
+  let jsonString: string;
   try {
-    const jsonString = JSON.stringify(data);
-    return encrypt(jsonString, key);
+    jsonString = JSON.stringify(data);
   } catch (error) {
-    return err(error instanceof Error ? error : new Error(String(error)));
+    return err(
+      new JsonSerializationFailedError(
+        error instanceof Error ? error : new Error(String(error)),
+      ),
+    );
   }
+  return encrypt(jsonString, key);
 }
 
 /**
@@ -328,7 +397,7 @@ export function encryptJson(
  * @template T - The expected type of the decrypted data (defaults to unknown)
  * @param {EncryptedData} encryptedData - The encrypted data object
  * @param {string} [key] - Optional encryption key (defaults to ENCRYPTION_KEY env var)
- * @returns {Result<T, Error>} Result with parsed JSON object or error
+ * @returns {Result<T, DecryptJsonErrorUnion>} Result with parsed JSON object or error
  *
  * @example
  * ```typescript
@@ -344,13 +413,21 @@ export function encryptJson(
  *   console.log("Name:", result.value.name);
  *   // TypeScript knows result.value is of type User
  * } else {
- *   console.error("Decryption failed:", result.error.message);
+ *   switch (result.error.type) {
+ *     case 'JSON_PARSE_FAILED':
+ *       console.error(`Invalid JSON: ${result.error.cause.message}`);
+ *       break;
+ *     case 'DECRYPTION_FAILED':
+ *       console.error(`Decryption failed: ${result.error.cause.message}`);
+ *       break;
+ *     // ... handle other cases
+ *   }
  * }
  * ```
  *
  * @errors
  * - All errors from decrypt() function (invalid data format, wrong key, etc.)
- * - JSON parsing errors (malformed JSON)
+ * - JsonParseFailedError - Decrypted data is not valid JSON
  *
  * @remarks
  * - The type parameter T defaults to unknown for type safety
@@ -363,17 +440,21 @@ export function encryptJson(
 export function decryptJson<T = unknown>(
   encryptedData: EncryptedData,
   key?: string,
-): Result<T, Error> {
-  try {
-    const plaintextResult = decrypt(encryptedData, key);
-    if (plaintextResult.isErr()) {
-      return err(plaintextResult.error);
-    }
+): Result<T, DecryptJsonErrorUnion> {
+  const plaintextResult = decrypt(encryptedData, key);
+  if (plaintextResult.isErr()) {
+    return err(plaintextResult.error);
+  }
 
+  try {
     const parsed = JSON.parse(plaintextResult.value) as T;
     return ok(parsed);
   } catch (error) {
-    return err(error instanceof Error ? error : new Error(String(error)));
+    return err(
+      new JsonParseFailedError(
+        error instanceof Error ? error : new Error(String(error)),
+      ),
+    );
   }
 }
 

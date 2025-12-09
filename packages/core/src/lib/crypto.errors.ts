@@ -268,6 +268,14 @@ export type DecryptErrorUnion =
   | DecryptionFailedError;
 
 /**
+ * Subset of errors that can occur during EncryptedData validation.
+ */
+export type EncryptedDataValidationError =
+  | InvalidIvLengthError
+  | InvalidAuthTagLengthError
+  | InvalidBase64FormatError;
+
+/**
  * Subset of errors that can occur during JSON encryption.
  */
 export type EncryptJsonErrorUnion = EncryptErrorUnion | JsonSerializationFailedError;
