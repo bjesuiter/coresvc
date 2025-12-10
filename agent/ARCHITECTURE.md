@@ -206,6 +206,50 @@ User → curl/Postman → Core Server → SQLite
 - [ ] **B.4** Add optional regular updates (daily summaries, new items)
 - [ ] **B.5** Implement `/notifications` command to configure preferences
 
+## Addon C: Memory System
+
+**Based on:** [ChatGPT's Memory Architecture](https://manthanguptaa.in/posts/chatgpt_memory/)
+
+Multi-layered memory system for personalized, context-aware bot interactions:
+
+### Layer 1: Session Context (Ephemeral)
+
+- [ ] **C.1.1** Track current conversation state (active command, pending input)
+- [ ] **C.1.2** Store temporary session data (command parameters, pagination state)
+- [ ] **C.1.3** Auto-expire session data after inactivity timeout
+
+### Layer 2: User Profile (Long-term)
+
+- [ ] **C.2.1** Create `user_memory` table schema (id, category, fact, source, created_at, updated_at)
+- [ ] **C.2.2** Generate migration for user memory table
+- [ ] **C.2.3** Implement memory extraction from conversations (explicit "remember this" + auto-detection)
+- [ ] **C.2.4** Implement `/remember <fact>` command for explicit memory storage
+- [ ] **C.2.5** Implement `/forget <fact_id>` command for memory deletion
+- [ ] **C.2.6** Implement `/memories` command to list stored facts
+- [ ] **C.2.7** Categories: preferences, goals, projects, context, personal
+
+### Layer 3: Conversation Summaries (Compressed History)
+
+- [ ] **C.3.1** Create `conversation_summaries` table (id, summary, topics, message_count, period_start, period_end)
+- [ ] **C.3.2** Implement periodic summarization job (daily/weekly)
+- [ ] **C.3.3** Extract key topics and action items from conversations
+- [ ] **C.3.4** Prune old raw messages after summarization
+- [ ] **C.3.5** Implement `/history` command for recent activity overview
+
+### Layer 4: Current Messages (Sliding Window)
+
+- [ ] **C.4.1** Create `messages` table (id, role, content, timestamp, summarized)
+- [ ] **C.4.2** Implement sliding window (last N messages or T minutes)
+- [ ] **C.4.3** Include relevant context from upper layers in responses
+- [ ] **C.4.4** Mark messages as summarized after compression
+
+### Memory Integration
+
+- [ ] **C.5.1** Create memory retrieval service (combines all layers for context)
+- [ ] **C.5.2** Add memory context to bot response generation
+- [ ] **C.5.3** Implement relevance scoring for memory retrieval
+- [ ] **C.5.4** Add memory management REST endpoints (`GET/POST/DELETE /memory`)
+
 ---
 
 # Environment Variables
