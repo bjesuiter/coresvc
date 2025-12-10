@@ -250,6 +250,14 @@ Multi-layered memory system for personalized, context-aware bot interactions:
 - [ ] **C.5.3** Implement relevance scoring for memory retrieval
 - [ ] **C.5.4** Add memory management REST endpoints (`GET/POST/DELETE /memory`)
 
+### Custom Memory System Remarks 
+
+**From aihero cohort 002 - Skill Exercise 05.02**
+For a custom AI System I'd want explicit knowledge saving the most time, except when the user brings up some key information, like Job history, Girlfriend or mariage, Kids or Life goals.
+Make sure to categorize the "hardness" of the information: 
+A job change is a hard fact that gets recorded once and never changes in the future. 
+A Life Goal is more of a "plan" with different levels of certainty (User is thinking of, user is determined to, etc.)
+
 ---
 
 # Environment Variables
