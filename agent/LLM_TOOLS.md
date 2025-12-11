@@ -82,73 +82,280 @@ If context becomes too complex, split into:
 - `code_generate` — OpenCode task submission
 - `code_execute` — Run inline ESM or stored scripts
 
-### Inline ESM Execution (Your Idea — Love It!)
+### Inline Code Execution via Bun Stdin
 
-Instead of file-based script management, the LLM generates a complete ESM module as a string:
+LLM generates a top-level ESM module as a string, piped to `bun run -` via stdin.
+No filesystem, no eval, proper subprocess isolation.
+
+**Reference:** https://bun.sh/docs/runtime#bun-run-to-pipe-code-from-stdin
 
 ```typescript
-// LLM generates this as a string
-const inlineModule = `
-  export default async function() {
-    const response = await fetch('https://api.example.com/data');
-    return response.json();
-  }
+// LLM generates this as a string (top-level module)
+const code = `
+  const response = await fetch('https://api.example.com/data');
+  const data = await response.json();
+  console.log(JSON.stringify(data));  // Output via stdout
 `;
 
-// Runtime executes it
-const result = await executeInlineESM(inlineModule);
+// Piped to: echo "$code" | bun run -
 ```
 
 **Benefits:**
-- No file system pollution
-- Sandboxed execution
-- Stateless and reproducible
-- Easy to audit (code is in the conversation)
+- No eval() or dynamic import() hacks
+- True subprocess isolation
+- Native Bun feature, stable
+- Captures stdout/stderr cleanly
+- Can enforce timeouts via subprocess
 
 **Implementation:**
+
 ```typescript
-async function executeInlineESM(code: string, timeout = 30000) {
-  // Create a data URL from the code
-  const blob = new Blob([code], { type: 'application/javascript' });
-  const url = URL.createObjectURL(blob);
+import { spawn } from 'bun';
+
+interface ExecutionResult {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  durationMs: number;
+  // For tracing
+  executionId: string;
+  code: string;
+  timestamp: Date;
+}
+
+async function executeCode(
+  code: string, 
+  options: { timeoutMs?: number; env?: Record<string, string> } = {}
+): Promise<ExecutionResult> {
+  const { timeoutMs = 30_000, env = {} } = options;
+  const executionId = crypto.randomUUID();
+  const startTime = Date.now();
+  
+  const proc = spawn({
+    cmd: ['bun', 'run', '-'],
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: { ...process.env, ...env },
+  });
+  
+  // Write code to stdin and close
+  const writer = proc.stdin.getWriter();
+  await writer.write(new TextEncoder().encode(code));
+  await writer.close();
+  
+  // Race between completion and timeout
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      proc.kill();
+      reject(new Error(`Execution timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
   
   try {
-    // Dynamic import with timeout
-    const module = await Promise.race([
-      import(url),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout')), timeout)
-      )
+    const [stdout, stderr, exitCode] = await Promise.race([
+      Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]),
+      timeoutPromise,
     ]);
     
-    // Execute the default export if it's a function
-    if (typeof module.default === 'function') {
-      return await module.default();
-    }
-    return module.default;
-  } finally {
-    URL.revokeObjectURL(url);
+    const result: ExecutionResult = {
+      success: exitCode === 0,
+      stdout,
+      stderr,
+      exitCode,
+      durationMs: Date.now() - startTime,
+      executionId,
+      code,
+      timestamp: new Date(),
+    };
+    
+    // Log for tracing (always, not just on error)
+    await traceExecution(result);
+    
+    return result;
+  } catch (error) {
+    const result: ExecutionResult = {
+      success: false,
+      stdout: '',
+      stderr: error instanceof Error ? error.message : String(error),
+      exitCode: -1,
+      durationMs: Date.now() - startTime,
+      executionId,
+      code,
+      timestamp: new Date(),
+    };
+    
+    await traceExecution(result);
+    return result;
   }
 }
 ```
 
-**Bun alternative (better sandboxing):**
-```typescript
-import { spawn } from 'bun';
+### Code Execution Tracing
 
-async function executeInlineESM(code: string) {
-  const proc = spawn({
-    cmd: ['bun', 'run', '-'],
-    stdin: new TextEncoder().encode(code),
-    stdout: 'pipe',
-    stderr: 'pipe',
+Every execution gets logged for observability and system prompt improvement.
+
+**Schema:**
+
+```typescript
+// In db/schema.ts
+export const codeExecutions = sqliteTable('code_executions', {
+  id: text('id').primaryKey(),                    // UUID
+  code: text('code').notNull(),                   // The generated code
+  stdout: text('stdout'),
+  stderr: text('stderr'),
+  exitCode: integer('exit_code'),
+  durationMs: integer('duration_ms'),
+  success: integer('success', { mode: 'boolean' }),
+  
+  // Context for debugging
+  sessionId: text('session_id'),                  // Which chat session
+  triggerMessage: text('trigger_message'),        // What user asked
+  llmReasoning: text('llm_reasoning'),            // Why LLM generated this code
+  
+  // For pattern analysis
+  errorCategory: text('error_category'),          // 'syntax', 'runtime', 'timeout', 'import'
+  
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .default(sql`(unixepoch())`),
+});
+```
+
+**Tracing implementation:**
+
+```typescript
+import { db } from './db';
+import { codeExecutions } from './db/schema';
+
+async function traceExecution(
+  result: ExecutionResult,
+  context?: { sessionId?: string; triggerMessage?: string; llmReasoning?: string }
+): Promise<void> {
+  // Categorize errors for pattern analysis
+  const errorCategory = result.success ? null : categorizeError(result.stderr);
+  
+  await db.insert(codeExecutions).values({
+    id: result.executionId,
+    code: result.code,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    durationMs: result.durationMs,
+    success: result.success,
+    sessionId: context?.sessionId,
+    triggerMessage: context?.triggerMessage,
+    llmReasoning: context?.llmReasoning,
+    errorCategory,
   });
-  
-  const output = await new Response(proc.stdout).text();
-  const exitCode = await proc.exited;
-  
-  return { output, exitCode };
 }
+
+function categorizeError(stderr: string): string {
+  if (!stderr) return 'unknown';
+  
+  if (stderr.includes('SyntaxError')) return 'syntax';
+  if (stderr.includes('Cannot find module') || stderr.includes('not found')) return 'import';
+  if (stderr.includes('TypeError')) return 'type';
+  if (stderr.includes('ReferenceError')) return 'reference';
+  if (stderr.includes('timed out')) return 'timeout';
+  if (stderr.includes('fetch failed') || stderr.includes('ECONNREFUSED')) return 'network';
+  
+  return 'runtime';
+}
+```
+
+**Querying for system prompt improvements:**
+
+```typescript
+// Get most common error patterns
+async function getErrorPatterns(days = 7) {
+  return db.select({
+    errorCategory: codeExecutions.errorCategory,
+    count: sql<number>`count(*)`,
+    examples: sql<string>`group_concat(substr(code, 1, 200), '---')`,
+  })
+  .from(codeExecutions)
+  .where(and(
+    eq(codeExecutions.success, false),
+    gt(codeExecutions.createdAt, sql`datetime('now', '-${days} days')`)
+  ))
+  .groupBy(codeExecutions.errorCategory)
+  .orderBy(sql`count(*) desc`);
+}
+
+// Get failed executions for a session (for debugging)
+async function getSessionFailures(sessionId: string) {
+  return db.select()
+    .from(codeExecutions)
+    .where(and(
+      eq(codeExecutions.sessionId, sessionId),
+      eq(codeExecutions.success, false)
+    ))
+    .orderBy(codeExecutions.createdAt);
+}
+```
+
+**Telegram command for tracing visibility:**
+
+```typescript
+// /codestats - show recent execution stats
+bot.command('codestats', async (ctx) => {
+  const stats = await db.select({
+    total: sql<number>`count(*)`,
+    successful: sql<number>`sum(case when success = 1 then 1 else 0 end)`,
+    failed: sql<number>`sum(case when success = 0 then 1 else 0 end)`,
+    avgDuration: sql<number>`avg(duration_ms)`,
+  })
+  .from(codeExecutions)
+  .where(gt(codeExecutions.createdAt, sql`datetime('now', '-7 days')`));
+  
+  const errors = await getErrorPatterns(7);
+  
+  return ctx.reply(`📊 Code Execution Stats (7 days)
+  
+Total: ${stats[0].total}
+✅ Success: ${stats[0].successful}
+❌ Failed: ${stats[0].failed}
+⏱ Avg duration: ${Math.round(stats[0].avgDuration)}ms
+
+Top error categories:
+${errors.map(e => `  • ${e.errorCategory}: ${e.count}`).join('\n')}`);
+});
+
+// /codefailures [n] - show last n failures with code
+bot.command('codefailures', async (ctx) => {
+  const limit = parseInt(ctx.match) || 5;
+  
+  const failures = await db.select()
+    .from(codeExecutions)
+    .where(eq(codeExecutions.success, false))
+    .orderBy(sql`created_at desc`)
+    .limit(limit);
+  
+  if (failures.length === 0) {
+    return ctx.reply('No recent failures! 🎉');
+  }
+  
+  for (const f of failures) {
+    await ctx.reply(`❌ ${f.id.slice(0, 8)}
+Category: ${f.errorCategory}
+Time: ${f.createdAt}
+
+Code:
+\`\`\`javascript
+${f.code.slice(0, 500)}${f.code.length > 500 ? '...' : ''}
+\`\`\`
+
+Error:
+\`\`\`
+${f.stderr.slice(0, 300)}
+\`\`\``, { parse_mode: 'Markdown' });
+  }
+});
 ```
 
 ---
