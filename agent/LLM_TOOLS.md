@@ -1,5 +1,7 @@
 # LLM Core Tools Design
 
+> ⚠️ **WORK IN PROGRESS** — This document is an early design draft. Implementation details may change.
+
 > Minimal toolset for the LLM core — optimize for clarity and reduced context clutter.
 
 ## Design Principles
