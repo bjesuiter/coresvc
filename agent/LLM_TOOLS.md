@@ -432,19 +432,20 @@ function redactSecretsFromOutput(output: string, secretValues: string[]): string
 #### What LLM-Generated Code Looks Like
 
 ```typescript
-// LLM generates this - clean, no boilerplate needed:
+// LLM generates this - references secrets by NAME only, never by value:
 
-// Fetch my GitHub repos
+// 'GITHUB_TOKEN' is just a string key - resolved at runtime by prelude
 const repos = await getJSON('https://api.github.com/user/repos', 'GITHUB_TOKEN');
 
-// Filter and format
 const publicRepos = repos
   .filter(r => !r.private)
   .map(r => ({ name: r.name, stars: r.stargazers_count }));
 
-// Output result (structured)
 output(publicRepos);
 ```
+
+**Critical:** The LLM only knows secret *names* (from system prompt), never the actual values. 
+Secret resolution happens in the runtime prelude, not in generated code.
 
 #### Available Globals (Document in System Prompt)
 
