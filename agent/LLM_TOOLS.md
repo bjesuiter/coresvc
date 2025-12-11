@@ -107,6 +107,377 @@ const code = `
 - Captures stdout/stderr cleanly
 - Can enforce timeouts via subprocess
 
+---
+
+### Runtime Prelude + Controlled Secret Access
+
+The generated code needs helpers and secrets, but we need to prevent secret leakage.
+
+**Solution:** Prepend a "runtime prelude" to all generated code that:
+1. Provides helper functions
+2. Exposes secrets via controlled accessor (not raw env vars)
+3. Creates "tainted" values that resist accidental logging
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│  Final Code (piped to bun run -)                │
+│  ┌───────────────────────────────────────────┐  │
+│  │  RUNTIME PRELUDE (auto-prepended)         │  │
+│  │  - Helper functions                       │  │
+│  │  - getSecret() with taint tracking        │  │
+│  │  - Patched console.log                    │  │
+│  └───────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────┐  │
+│  │  LLM GENERATED CODE                       │  │
+│  │  - Uses helpers via global scope          │  │
+│  │  - Calls getSecret('OPENAI_KEY')          │  │
+│  └───────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────┘
+```
+
+#### Runtime Prelude Implementation
+
+```typescript
+// packages/core/src/lib/code-runtime/prelude.ts
+// This gets bundled and prepended to all generated code
+
+// ============================================================
+// TAINTED VALUES - Resist accidental logging
+// ============================================================
+
+const TAINT_SYMBOL = Symbol('tainted');
+const taintedValues = new Set<string>();
+
+class TaintedString {
+  private value: string;
+  [TAINT_SYMBOL] = true;
+  
+  constructor(value: string) {
+    this.value = value;
+    taintedValues.add(value);
+  }
+  
+  // Allow using in string contexts (fetch headers, etc.)
+  toString(): string {
+    return this.value;
+  }
+  
+  valueOf(): string {
+    return this.value;
+  }
+  
+  // Prevent JSON.stringify from exposing value
+  toJSON(): string {
+    return '[REDACTED]';
+  }
+  
+  // For use in template literals
+  [Symbol.toPrimitive](hint: string): string {
+    return this.value;
+  }
+}
+
+// ============================================================
+// PATCHED CONSOLE - Redact tainted values
+// ============================================================
+
+const originalConsole = { ...console };
+
+function redactTainted(value: unknown): unknown {
+  if (typeof value === 'string') {
+    let result = value;
+    for (const tainted of taintedValues) {
+      if (result.includes(tainted)) {
+        result = result.replaceAll(tainted, '[REDACTED]');
+      }
+    }
+    return result;
+  }
+  if (value instanceof TaintedString) {
+    return '[REDACTED]';
+  }
+  if (typeof value === 'object' && value !== null) {
+    return JSON.parse(JSON.stringify(value, (_, v) => {
+      if (v instanceof TaintedString) return '[REDACTED]';
+      if (typeof v === 'string' && taintedValues.has(v)) return '[REDACTED]';
+      return v;
+    }));
+  }
+  return value;
+}
+
+console.log = (...args: unknown[]) => {
+  originalConsole.log(...args.map(redactTainted));
+};
+console.error = (...args: unknown[]) => {
+  originalConsole.error(...args.map(redactTainted));
+};
+console.warn = (...args: unknown[]) => {
+  originalConsole.warn(...args.map(redactTainted));
+};
+console.info = (...args: unknown[]) => {
+  originalConsole.info(...args.map(redactTainted));
+};
+
+// ============================================================
+// SECRET ACCESS
+// ============================================================
+
+// Secrets are injected as base64 JSON in __SECRETS__ env var
+const __secrets: Record<string, string> = JSON.parse(
+  Buffer.from(process.env.__SECRETS__ || 'e30=', 'base64').toString()
+);
+
+/**
+ * Get a secret value. Returns a tainted string that auto-redacts in logs.
+ * Use .toString() or template literals to get the actual value for API calls.
+ */
+function getSecret(name: string): TaintedString {
+  const value = __secrets[name];
+  if (!value) {
+    throw new Error(`Secret '${name}' not found. Available: ${Object.keys(__secrets).join(', ')}`);
+  }
+  return new TaintedString(value);
+}
+
+/**
+ * List available secret names (not values)
+ */
+function listSecrets(): string[] {
+  return Object.keys(__secrets);
+}
+
+// ============================================================
+// HELPER FUNCTIONS
+// ============================================================
+
+/**
+ * Fetch with automatic auth header injection
+ */
+async function fetchWithAuth(
+  url: string, 
+  options: RequestInit & { authSecret?: string } = {}
+): Promise<Response> {
+  const { authSecret, ...fetchOptions } = options;
+  
+  if (authSecret) {
+    const token = getSecret(authSecret);
+    fetchOptions.headers = {
+      ...fetchOptions.headers,
+      'Authorization': `Bearer ${token}`,
+    };
+  }
+  
+  return fetch(url, fetchOptions);
+}
+
+/**
+ * Simple HTTP GET that returns JSON
+ */
+async function getJSON<T = unknown>(url: string, authSecret?: string): Promise<T> {
+  const response = await fetchWithAuth(url, { authSecret });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+  }
+  return response.json();
+}
+
+/**
+ * Simple HTTP POST that sends and returns JSON
+ */
+async function postJSON<T = unknown>(
+  url: string, 
+  body: unknown, 
+  authSecret?: string
+): Promise<T> {
+  const response = await fetchWithAuth(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    authSecret,
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+  }
+  return response.json();
+}
+
+/**
+ * Output structured result (preferred over console.log for data)
+ */
+function output(data: unknown): void {
+  console.log('__OUTPUT__' + JSON.stringify(data) + '__END_OUTPUT__');
+}
+
+/**
+ * Sleep for specified milliseconds
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ============================================================
+// EXPOSE TO GLOBAL SCOPE
+// ============================================================
+
+Object.assign(globalThis, {
+  getSecret,
+  listSecrets,
+  fetchWithAuth,
+  getJSON,
+  postJSON,
+  output,
+  sleep,
+  TaintedString,
+});
+
+// ============================================================
+// END PRELUDE
+// ============================================================
+
+```
+
+#### Injecting Secrets Safely
+
+```typescript
+// packages/core/src/lib/code-runtime/executor.ts
+
+interface ExecuteOptions {
+  timeoutMs?: number;
+  secrets?: Record<string, string>;  // { OPENAI_KEY: 'sk-...', GITHUB_TOKEN: '...' }
+  sessionId?: string;
+  triggerMessage?: string;
+}
+
+async function executeCode(code: string, options: ExecuteOptions = {}): Promise<ExecutionResult> {
+  const { timeoutMs = 30_000, secrets = {}, sessionId, triggerMessage } = options;
+  
+  // Pre-execution scan for obvious leaks
+  const scanResult = scanForLeaks(code, Object.keys(secrets));
+  if (scanResult.suspicious) {
+    return {
+      success: false,
+      stdout: '',
+      stderr: `Code rejected: ${scanResult.reason}`,
+      exitCode: -1,
+      // ... rest of result
+    };
+  }
+  
+  // Bundle prelude + generated code
+  const prelude = await getPreludeCode(); // Cached, bundled version
+  const fullCode = `${prelude}\n\n// === LLM GENERATED CODE ===\n\n${code}`;
+  
+  // Encode secrets as base64 JSON (not visible in process list)
+  const secretsB64 = Buffer.from(JSON.stringify(secrets)).toString('base64');
+  
+  const proc = spawn({
+    cmd: ['bun', 'run', '-'],
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: {
+      ...process.env,
+      __SECRETS__: secretsB64,
+      // Limit what the subprocess can access
+      PATH: '/usr/bin:/bin',
+    },
+  });
+  
+  // ... rest of execution logic
+  
+  // Post-execution scan - check if output contains raw secrets
+  const result = await executeAndCapture(proc, fullCode, timeoutMs);
+  result.stdout = redactSecretsFromOutput(result.stdout, Object.values(secrets));
+  result.stderr = redactSecretsFromOutput(result.stderr, Object.values(secrets));
+  
+  return result;
+}
+
+function scanForLeaks(code: string, secretNames: string[]): { suspicious: boolean; reason?: string } {
+  // Check for direct env access attempts
+  if (/process\.env\.__SECRETS__/.test(code)) {
+    return { suspicious: true, reason: 'Direct access to __SECRETS__ env var' };
+  }
+  
+  // Check for attempts to log secret names directly
+  for (const name of secretNames) {
+    const pattern = new RegExp(`console\\.(log|error|warn)\\(.*getSecret\\(['"]${name}['"]\\)`, 'i');
+    if (pattern.test(code)) {
+      return { suspicious: true, reason: `Attempting to log secret: ${name}` };
+    }
+  }
+  
+  // Check for toString() calls on secrets going to console
+  if (/console\.(log|error|warn)\(.*\.toString\(\)/.test(code)) {
+    return { suspicious: true, reason: 'Possible secret leak via toString()' };
+  }
+  
+  return { suspicious: false };
+}
+
+function redactSecretsFromOutput(output: string, secretValues: string[]): string {
+  let result = output;
+  for (const secret of secretValues) {
+    if (secret.length > 4) { // Don't redact very short strings
+      result = result.replaceAll(secret, '[REDACTED]');
+    }
+  }
+  return result;
+}
+```
+
+#### What LLM-Generated Code Looks Like
+
+```typescript
+// LLM generates this - clean, no boilerplate needed:
+
+// Fetch my GitHub repos
+const repos = await getJSON('https://api.github.com/user/repos', 'GITHUB_TOKEN');
+
+// Filter and format
+const publicRepos = repos
+  .filter(r => !r.private)
+  .map(r => ({ name: r.name, stars: r.stargazers_count }));
+
+// Output result (structured)
+output(publicRepos);
+```
+
+#### Available Globals (Document in System Prompt)
+
+| Function | Description |
+|----------|-------------|
+| `getSecret(name)` | Get a secret (returns tainted string, safe for API calls) |
+| `listSecrets()` | List available secret names |
+| `getJSON(url, authSecret?)` | GET request returning JSON |
+| `postJSON(url, body, authSecret?)` | POST request with JSON body |
+| `fetchWithAuth(url, options)` | Fetch with optional auth header |
+| `output(data)` | Emit structured output (parsed by executor) |
+| `sleep(ms)` | Async delay |
+
+#### System Prompt Addition
+
+```markdown
+## Code Execution Environment
+
+When generating code for execution, you have access to these globals:
+
+- `getSecret(name)` - Returns API keys/tokens. Available: OPENAI_KEY, GITHUB_TOKEN, etc.
+- `getJSON(url, authSecret?)` - Fetch JSON. Pass secret name for authenticated requests.
+- `postJSON(url, body, authSecret?)` - POST JSON data.
+- `output(data)` - Return structured data (preferred over console.log).
+- `sleep(ms)` - Wait for specified milliseconds.
+
+IMPORTANT:
+- Never console.log secrets directly - they will be redacted
+- Use output() for returning data
+- Secrets are tainted and auto-redact in logs
+- Top-level await is supported
+```
+
 **Implementation:**
 
 ```typescript
