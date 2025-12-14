@@ -745,43 +745,52 @@ interface MemoryTool {
   parameters: {
     action: "store" | "recall" | "list" | "forget";
     
-    // For "store":
     /**
-     * Memory record type stored in DB (single `memories` table).
-     * Time-based types are calendar-aligned (weeks are Monday→Sunday).
+     * Select which store you're interacting with.
+     * - `user_memory`: categorical life context (facts, goals, open loops, etc.)
+     * - `summaries`: calendar-aligned conversation roll-ups
      */
-    type:
-      | "evergreen-memory"
-      | "highlight-memory"
+    store?: "user_memory" | "summaries";
+    content?: string;
+    tags?: string[];
+    /**
+     * For `store: "user_memory"`.
+     */
+    category?:
+      | "fact"
+      | "preference"
+      | "life-goal"
+      | "project"
+      | "open-loop"
+      | "relationship"
+      | "health"
+      | "work"
+      | "personal-context";
+    /**
+     * Replaces "certainty".
+     * 0–100: how actively the user is pursuing this (best for goals/projects/open-loops).
+     * Facts typically omit this or use 100 by convention.
+     */
+    pursuingPriority?: number;
+    
+    /**
+     * For `store: "summaries"`.
+     */
+    summary_type?:
       | "conversation-summary"
       | "daily-summary"
       | "weekly-summary"
       | "monthly-summary"
       | "quarterly-summary"
       | "yearly-summary";
-    content?: string;
-    /**
-     * Optional classification tags to improve retrieval.
-     * (Keep these lightweight; the primary selector is `type` + time window.)
-     */
-    tags?: string[];
-    /**
-     * Canonical period key for time-based types (optional for non-period memories):
-     * - daily: YYYY-MM-DD
-     * - weekly: YYYY-Www (ISO week; Mon–Sun)
-     * - monthly: YYYY-MM
-     * - quarterly: YYYY-Qn
-     * - yearly: YYYY
-     */
-    period_key?: string;
-    /**
-     * For `conversation-summary` (virtual chat/session).
-     */
-    chat_id?: string;
+    period_key?: string; // see below
+    chat_id?: string;    // for conversation-summary (virtual chat/session)
     
     // For "recall":
     query?: string;          // Semantic search across memories
-    types?: Array<MemoryTool["parameters"]["type"]>;  // Filter by record types
+    store_filter?: "user_memory" | "summaries";
+    categories?: Array<NonNullable<MemoryTool["parameters"]["category"]>>;
+    summary_types?: Array<NonNullable<MemoryTool["parameters"]["summary_type"]>>;
     /**
      * Filter by time range (ISO timestamps) or by period_key prefix.
      * Examples:
@@ -800,7 +809,8 @@ interface MemoryTool {
     success: boolean;
     memories?: Array<{
       id: string;
-      type: string;
+      store: string;        // "user_memory" | "summaries"
+      type: string;         // category or summary_type (implementation-defined)
       content: string;
       tags?: string[];
       period_key?: string;
@@ -812,18 +822,15 @@ interface MemoryTool {
 }
 ```
 
-### Memory Record Types (DB-backed)
+### Summary period keys (calendar-aligned)
 
-Instead of “layers”, store a single stream of memory records with a `type` field (see tool schema above).
+Canonical keys (recommended):
 
-**Key types:**
-
-- **Always-on**: `evergreen-memory`, `highlight-memory`
-- **Per-chat**: `conversation-summary` (virtual chats/sessions)
-- **Calendar roll-ups** (Mon–Sun weeks): `weekly-summary`, `monthly-summary`, `quarterly-summary`, `yearly-summary`
-- **Optional**: `daily-summary`
-
-Retrieval can then be expressed as a simple tiered window (recent conversation summaries + week→month→quarter→year roll-ups), with anything older requiring an explicit semantic recall.
+- **daily**: `YYYY-MM-DD`
+- **weekly**: ISO week `YYYY-Www` (ISO weeks are **Mon–Sun**)
+- **monthly**: `YYYY-MM`
+- **quarterly**: `YYYY-Qn`
+- **yearly**: `YYYY`
 
 ### Session Division for Telegram
 

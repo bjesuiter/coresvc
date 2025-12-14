@@ -220,17 +220,18 @@ Multi-layered memory system for personalized, context-aware bot interactions:
 
 ### Layer 2: User Profile (Long-term)
 
-- [ ] **C.2.1** Create `user_memory` table schema (id, category, fact, source, created_at, updated_at)
+- [ ] **C.2.1** Create `user_memory` table schema (id, category, content, pursuing_priority, source, created_at, updated_at)
 - [ ] **C.2.2** Generate migration for user memory table
 - [ ] **C.2.3** Implement memory extraction from conversations (explicit "remember this" + auto-detection)
 - [ ] **C.2.4** Implement `/remember <fact>` command for explicit memory storage
 - [ ] **C.2.5** Implement `/forget <fact_id>` command for memory deletion
 - [ ] **C.2.6** Implement `/memories` command to list stored facts
-- [ ] **C.2.7** Categories: preferences, goals, projects, context, personal
+- [ ] **C.2.7** Categories: `fact`, `preference`, `life-goal`, `project`, `open-loop`, `relationship`, `health`, `work`, `personal-context` (extend as needed)
+- [ ] **C.2.8** `pursuing_priority` (0–100): use for goals/projects/open-loops to reflect how actively the user is pursuing it (facts are typically 100 or omitted)
 
 ### Layer 3: Conversation Summaries (Compressed History)
 
-- [ ] **C.3.1** Create a unified `memories` table (type + content + metadata; includes summaries)
+- [ ] **C.3.1** Create `conversation_summaries` table (id, summary_type, content, topics/tags, period_key, period_start, period_end, source_ids, created_at, updated_at)
 - [ ] **C.3.2** Implement periodic summarization jobs (conversation/weekly/monthly/quarterly/yearly; daily optional)
 - [ ] **C.3.3** Extract key topics and action items from conversations
 - [ ] **C.3.4** Keep all artifacts (no deletion); rely on retrieval windows + active search for older context
@@ -244,7 +245,7 @@ We model summaries like backups, but **we do not delete existing artifacts**. In
 - Retrieval uses **fixed windows** (recent + current period context).
 - Anything older is still available, but requires **active retrieval** (semantic search / explicit query).
 
-##### Memory record types (stored in a unified `memories` table)
+##### Summary types (stored in `conversation_summaries`)
 
 Time-based summary “backup” types:
 
@@ -254,11 +255,14 @@ Time-based summary “backup” types:
 - `quarterly-summary` (calendar quarter)
 - `yearly-summary` (calendar year)
 
-Additional memory types:
+Additional long-term memory types (stored separately in `user_memory`):
 
-- `conversation-summary` (summary of one “virtual chat/session”)
-- `evergreen-memory` (always-true facts about the user; stable identity/relationships)
-- `highlight-memory` (important turning point / life highlight; **manual insert only**)
+- `evergreen` (always-true facts about the user; stable identity/relationships) — best represented as `category = fact|relationship` in `user_memory`
+- `highlight` (important turning point / life highlight; **manual insert only**) — best represented as `category = personal-context` (or dedicated category) in `user_memory`
+
+Conversation-scoped memory artifacts:
+
+- `conversation-summary` (summary of one “virtual chat/session”) — stored in `conversation_summaries` with `summary_type = conversation-summary`
 
 **Note on daily summaries:** you can skip `daily-summary` entirely and rely on `conversation-summary` + weekly roll-ups. Daily summaries are helpful if you want a “what happened on Tuesday” view.
 
@@ -297,19 +301,10 @@ For default context assembly (before any explicit “search memory” step), fet
 
 Everything older than the above windows is not included by default and must be **actively retrieved** (semantic recall/query) when needed.
 
-##### `memories` table (suggested shape)
+##### Table split (why not one table)
 
-Minimum recommended columns:
-
-- `id`
-- `type` (one of the types above)
-- `content` (the memory text; ideally structured + human readable)
-- `topics` / `tags` (optional but very useful for retrieval)
-- `period_key` (nullable for non-time-based records like `evergreen-memory`)
-- `period_start`, `period_end` (nullable for non-time-based)
-- `source_memory_ids` (nullable; for roll-ups)
-- `chat_id` (nullable; for `conversation-summary`)
-- `created_at`, `updated_at`
+- **`user_memory`** is optimized for **categorical, queryable life context** (facts, preferences, goals, open loops) and includes `pursuing_priority` for “how active is this?”.
+- **`conversation_summaries`** is optimized for **time-window retrieval** (conversation/week/month/quarter/year roll-ups) using calendar keys + lineage.
 
 ##### Summarization prompts (each type gets its own prompt)
 
