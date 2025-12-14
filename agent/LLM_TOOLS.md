@@ -746,15 +746,51 @@ interface MemoryTool {
     action: "store" | "recall" | "list" | "forget";
     
     // For "store":
-    layer: "long" | "mid" | "short" | "session";
+    /**
+     * Memory record type stored in DB (single `memories` table).
+     * Time-based types are calendar-aligned (weeks are Monday→Sunday).
+     */
+    type:
+      | "evergreen-memory"
+      | "highlight-memory"
+      | "conversation-summary"
+      | "daily-summary"
+      | "weekly-summary"
+      | "monthly-summary"
+      | "quarterly-summary"
+      | "yearly-summary";
     content?: string;
-    category?: string;       // For long-term: "fact", "preference", "relationship"
-                             // For mid-term: "goal", "plan", "project"
-    certainty?: number;      // 0-1, for goals/plans
+    /**
+     * Optional classification tags to improve retrieval.
+     * (Keep these lightweight; the primary selector is `type` + time window.)
+     */
+    tags?: string[];
+    /**
+     * Canonical period key for time-based types (optional for non-period memories):
+     * - daily: YYYY-MM-DD
+     * - weekly: YYYY-Www (ISO week; Mon–Sun)
+     * - monthly: YYYY-MM
+     * - quarterly: YYYY-Qn
+     * - yearly: YYYY
+     */
+    period_key?: string;
+    /**
+     * For `conversation-summary` (virtual chat/session).
+     */
+    chat_id?: string;
     
     // For "recall":
     query?: string;          // Semantic search across memories
-    layer?: string;          // Filter by layer
+    types?: Array<MemoryTool["parameters"]["type"]>;  // Filter by record types
+    /**
+     * Filter by time range (ISO timestamps) or by period_key prefix.
+     * Examples:
+     * - period_key_prefix: "2025-12" (month)
+     * - period_key_prefix: "2025-W50" (week)
+     */
+    from?: string;
+    to?: string;
+    period_key_prefix?: string;
     limit?: number;          // Default: 10
     
     // For "forget":
@@ -764,10 +800,11 @@ interface MemoryTool {
     success: boolean;
     memories?: Array<{
       id: string;
-      layer: string;
+      type: string;
       content: string;
-      category?: string;
-      certainty?: number;
+      tags?: string[];
+      period_key?: string;
+      chat_id?: string;
       created_at: string;
       relevance?: number;    // For recall results
     }>;
@@ -775,14 +812,18 @@ interface MemoryTool {
 }
 ```
 
-### Memory Layers Detailed
+### Memory Record Types (DB-backed)
 
-| Layer | TTL | Purpose | Examples |
-|-------|-----|---------|----------|
-| **long** | Permanent | Hard facts, preferences, relationships | "Works at X", "Married to Y", "Prefers dark mode" |
-| **mid** | 1-3 months | Goals, plans, projects | "Learning Rust", "Launching product Q1", "Saving for house" |
-| **short** | Days/weeks | Recent context, conversation summaries | "Was debugging auth issue", "Discussed vacation plans" |
-| **session** | Current chat | Active task context, temporary state | "Working on this PR", "Currently in refactor mode" |
+Instead of “layers”, store a single stream of memory records with a `type` field (see tool schema above).
+
+**Key types:**
+
+- **Always-on**: `evergreen-memory`, `highlight-memory`
+- **Per-chat**: `conversation-summary` (virtual chats/sessions)
+- **Calendar roll-ups** (Mon–Sun weeks): `weekly-summary`, `monthly-summary`, `quarterly-summary`, `yearly-summary`
+- **Optional**: `daily-summary`
+
+Retrieval can then be expressed as a simple tiered window (recent conversation summaries + week→month→quarter→year roll-ups), with anything older requiring an explicit semantic recall.
 
 ### Session Division for Telegram
 
