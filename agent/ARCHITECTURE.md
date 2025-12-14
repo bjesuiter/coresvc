@@ -236,6 +236,84 @@ Multi-layered memory system for personalized, context-aware bot interactions:
 - [ ] **C.3.4** Prune old raw messages after summarization
 - [ ] **C.3.5** Implement `/history` command for recent activity overview
 
+#### Tiered “Backup-Style” Memory Pruning Plan (Summarize → Roll-up → Prune)
+
+Treat conversation memory like time-based backups. “Pruning” means **replacing older, detailed artifacts with smaller, higher-level summaries** while preserving key decisions, preferences, and ongoing threads.
+
+**Core idea:** keep fine-grained summaries for recent time, and progressively roll them up:
+
+- **Daily / per-conversation summaries** for the **last 7 days**
+- **Weekly** summary for prior weeks
+- **Monthly** summary for prior months
+- **Yearly** summary for prior years
+
+##### Horizons (What we keep)
+
+| Horizon | Kept artifacts | Retention | Primary use |
+|---------|----------------|-----------|-------------|
+| **H0: Current window** | Raw `messages` (sliding window) + current session state | Short (hours–days) | Immediate coherence |
+| **H1: Daily (last 7 days)** | Daily summaries per day (or per conversation/day) | Rolling **last 7 days** | “What have we been doing this week?” |
+| **H2: Weekly** | One summary per week | Keep last **~8–12 weeks** (configurable) | Ongoing projects & recurring themes |
+| **H3: Monthly** | One summary per month | Keep last **~12–18 months** | Medium-term progress & milestones |
+| **H4: Yearly** | One summary per year | Keep **N years** (e.g., 3–10) | Long-term narrative & major shifts |
+
+Notes:
+- The “last 7 days” horizon is intentionally **dense** (multiple summaries) to keep recent context sharp.
+- Longer horizons become progressively more “stable”: fewer updates, more consolidation.
+
+##### Roll-up rules (How summaries are created)
+
+- **Daily summarization (H1)**: at end-of-day (or when a session closes), summarize raw messages into a daily summary.
+  - Input: that day’s messages (or session messages) + prior daily summary for that period (if updating).
+  - Output fields (recommended): `summary`, `topics`, `open_loops`, `decisions`, `action_items`, `entities`, `source_ids`.
+- **Weekly roll-up (H2)**: once a week, summarize the **set of daily summaries** for that week into a single weekly summary.
+  - Input: H1 summaries for that week (not raw messages).
+  - Output: focuses on progress, unresolved items, and stable learnings.
+- **Monthly roll-up (H3)**: once a month, summarize the **weekly summaries** for that month into a monthly summary.
+- **Yearly roll-up (H4)**: once a year, summarize the **monthly summaries** into a yearly summary.
+
+##### Pruning rules (What gets deleted/compacted)
+
+Pruning is only allowed after the next-higher artifact exists and passes basic quality checks (non-empty, has topics, includes open loops).
+
+- **Raw messages → pruned after H1 exists**
+  - Once a day/session has a valid H1 daily summary, raw messages older than a safety buffer can be deleted or archived.
+  - Suggested safety buffer: keep raw messages for **7–30 days** depending on cost + audit needs.
+- **Daily summaries beyond 7 days → eligible for pruning after H2 exists**
+  - Keep the rolling last 7 days of H1 no matter what.
+  - Older H1 entries can be deleted once the corresponding H2 weekly summary exists.
+- **Weekly summaries beyond retention → eligible after H3 exists**
+  - Weeks older than the kept window can be deleted after the monthly summary exists.
+- **Monthly summaries beyond retention → eligible after H4 exists**
+  - Months older than the kept window can be deleted after the yearly summary exists.
+
+##### Retrieval policy (How the LLM uses it)
+
+When constructing context for a reply:
+
+1. **H0 (current)**: current sliding window + session state
+2. **H1 (daily)**: last 7 days daily summaries (or top-K by relevance)
+3. **H2/H3/H4**: include current week/month/year summaries **only if relevant** (topic overlap / active project / unresolved loop)
+4. **User Profile (Layer 2)**: stable facts/preferences always available (subject to relevance + safety)
+
+##### Recommended schema additions (to make this implementable)
+
+Extend `conversation_summaries` to support horizons and lineage:
+
+- `horizon`: `'day' | 'week' | 'month' | 'year'`
+- `period_key`: canonical key (e.g., `2025-12-14`, `2025-W50`, `2025-12`, `2025`)
+- `source_summary_ids`: list of child summary IDs used to build this roll-up
+- `quality`: small score or flags (`has_open_loops`, `has_decisions`, `token_estimate`)
+- `updated_at`: to support incremental updates within the same period
+
+##### Work items (implementation checklist)
+
+- [ ] **C.3.6** Add horizon-aware summary schema (`horizon`, `period_key`, lineage)
+- [ ] **C.3.7** Implement daily summarizer → produce H1 for last 7 days
+- [ ] **C.3.8** Implement weekly/monthly/yearly roll-up jobs (H2/H3/H4) from lower-tier summaries
+- [ ] **C.3.9** Implement safe pruning rules with buffers + quality gates
+- [ ] **C.3.10** Update memory retrieval to prefer H1, then roll-ups by relevance
+
 ### Layer 4: Current Messages (Sliding Window)
 
 - [ ] **C.4.1** Create `messages` table (id, role, content, timestamp, summarized)
