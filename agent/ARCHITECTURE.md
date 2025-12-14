@@ -220,21 +220,118 @@ Multi-layered memory system for personalized, context-aware bot interactions:
 
 ### Layer 2: User Profile (Long-term)
 
-- [ ] **C.2.1** Create `user_memory` table schema (id, category, fact, source, created_at, updated_at)
+- [ ] **C.2.1** Create `user_memory` table schema (id, category, content, pursuing_priority, source, created_at, updated_at)
 - [ ] **C.2.2** Generate migration for user memory table
 - [ ] **C.2.3** Implement memory extraction from conversations (explicit "remember this" + auto-detection)
 - [ ] **C.2.4** Implement `/remember <fact>` command for explicit memory storage
 - [ ] **C.2.5** Implement `/forget <fact_id>` command for memory deletion
 - [ ] **C.2.6** Implement `/memories` command to list stored facts
-- [ ] **C.2.7** Categories: preferences, goals, projects, context, personal
+- [ ] **C.2.7** Categories: `fact`, `preference`, `life-goal`, `project`, `open-loop`, `relationship`, `health`, `work`, `personal-context` (extend as needed)
+- [ ] **C.2.8** `pursuing_priority` (0–100): use for goals/projects/open-loops to reflect how actively the user is pursuing it (facts are typically 100 or omitted)
 
 ### Layer 3: Conversation Summaries (Compressed History)
 
-- [ ] **C.3.1** Create `conversation_summaries` table (id, summary, topics, message_count, period_start, period_end)
-- [ ] **C.3.2** Implement periodic summarization job (daily/weekly)
+- [ ] **C.3.1** Create `conversation_summaries` table (id, summary_type, content, topics/tags, period_key, period_start, period_end, source_ids, created_at, updated_at)
+- [ ] **C.3.2** Implement periodic summarization jobs (conversation/weekly/monthly/quarterly/yearly; daily optional)
 - [ ] **C.3.3** Extract key topics and action items from conversations
-- [ ] **C.3.4** Prune old raw messages after summarization
+- [ ] **C.3.4** Keep all artifacts (no deletion); rely on retrieval windows + active search for older context
 - [ ] **C.3.5** Implement `/history` command for recent activity overview
+
+#### Tiered “Backup-Style” Summary Plan (Additive, Calendar-Aligned)
+
+We model summaries like backups, but **we do not delete existing artifacts**. Instead:
+
+- We continuously **add** higher-level summaries (weekly/monthly/quarterly/yearly).
+- Retrieval uses **fixed windows** (recent + current period context).
+- Anything older is still available, but requires **active retrieval** (semantic search / explicit query).
+
+##### Summary types (stored in `conversation_summaries`)
+
+Time-based summary “backup” types:
+
+- `daily-summary` (optional; see note below)
+- `weekly-summary` (calendar week **Monday → Sunday**)
+- `monthly-summary` (calendar month)
+- `quarterly-summary` (calendar quarter)
+- `yearly-summary` (calendar year)
+
+Additional long-term memory types (stored separately in `user_memory`):
+
+- `evergreen` (always-true facts about the user; stable identity/relationships) — best represented as `category = fact|relationship` in `user_memory`
+- `highlight` (important turning point / life highlight; **manual insert only**) — best represented as `category = personal-context` (or dedicated category) in `user_memory`
+
+Conversation-scoped memory artifacts:
+
+- `conversation-summary` (summary of one “virtual chat/session”) — stored in `conversation_summaries` with `summary_type = conversation-summary`
+
+**Note on daily summaries:** you can skip `daily-summary` entirely and rely on `conversation-summary` + weekly roll-ups. Daily summaries are helpful if you want a “what happened on Tuesday” view.
+
+##### Period keys (canonical identifiers)
+
+Use stable, calendar-aligned keys so selection is easy and deterministic:
+
+- **daily**: `YYYY-MM-DD`
+- **weekly**: ISO week `YYYY-Www` (ISO weeks are **Mon–Sun**)
+- **monthly**: `YYYY-MM`
+- **quarterly**: `YYYY-Qn` (n = 1..4)
+- **yearly**: `YYYY`
+
+Store `period_start`/`period_end` timestamps alongside `period_key` for correctness across timezones.
+
+##### Roll-up rules (how summaries get created)
+
+- `conversation-summary`: created when a “virtual chat/session” ends (manual `/newsession` or implicit boundaries).
+- `weekly-summary`: summarize all `conversation-summary` (and/or `daily-summary`) records whose timestamps fall within that calendar week.
+- `monthly-summary`: summarize that month’s `weekly-summary` records.
+- `quarterly-summary`: summarize that quarter’s `monthly-summary` records.
+- `yearly-summary`: summarize that year’s `quarterly-summary` records.
+
+All roll-ups should carry lineage (e.g., `source_memory_ids`) so we can trace what fed into what.
+
+##### Retrieval recipe (your “tiered backup restore” approach)
+
+For default context assembly (before any explicit “search memory” step), fetch:
+
+- **Recent**: last **X** `conversation-summary` records (or last X `daily-summary` if you adopt daily)
+- **Weekly**: weekly summaries from **current week back to the start of the current month**
+- **Monthly**: monthly summaries from **current month back to the start of the current quarter**
+- **Quarterly**: quarterly summaries from **current quarter back to the start of the current year**
+- **Yearly**: the **previous year’s** `yearly-summary` (highlights) (and optionally current year-to-date if you generate it)
+- **Always-on**: `evergreen-memory` + (optionally) top-N `highlight-memory` (manual, curated)
+
+Everything older than the above windows is not included by default and must be **actively retrieved** (semantic recall/query) when needed.
+
+##### Table split (why not one table)
+
+- **`user_memory`** is optimized for **categorical, queryable life context** (facts, preferences, goals, open loops) and includes `pursuing_priority` for “how active is this?”.
+- **`conversation_summaries`** is optimized for **time-window retrieval** (conversation/week/month/quarter/year roll-ups) using calendar keys + lineage.
+
+##### Summarization prompts (each type gets its own prompt)
+
+Each memory type should use a dedicated prompt with:
+
+- **Scope**: what source material it summarizes (messages vs summaries)
+- **Focus**: what to extract (decisions, action items, ongoing threads, changes in preferences, etc.)
+- **Output shape**: consistent sections (so retrieval can be selective)
+
+Suggested focus per type:
+
+- **`conversation-summary`**: decisions, action items, unresolved questions, key context, “what to remember next time”
+- **`daily-summary`**: a day-level narrative + what changed + what’s next
+- **`weekly-summary`**: progress by project/area, recurring themes, open loops, blockers
+- **`monthly-summary`**: milestones, trendlines, notable changes in goals/routines
+- **`quarterly-summary`**: goal-level progress, major commitments, strategic shifts, “what mattered”
+- **`yearly-summary`**: highlights + turning points + enduring themes; minimal but high-signal
+- **`evergreen-memory`**: only stable truths; avoid transient details; include provenance if relevant
+- **`highlight-memory`**: manual, curated; optionally allow an LLM rewrite into a crisp canonical form
+
+##### Work items (implementation checklist)
+
+- [ ] **C.3.6** Implement `memories` table + types (including quarterly/yearly) + lineage
+- [ ] **C.3.7** Implement “virtual chats” (start/switch/end) to support `conversation-summary`
+- [ ] **C.3.8** Implement calendar-aligned roll-ups: weekly → monthly → quarterly → yearly
+- [ ] **C.3.9** Implement retrieval windows exactly as defined above + “active retrieval” search path
+- [ ] **C.3.10** Add per-type summarization prompts (versioned) + output schema validation
 
 ### Layer 4: Current Messages (Sliding Window)
 

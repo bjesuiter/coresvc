@@ -745,16 +745,61 @@ interface MemoryTool {
   parameters: {
     action: "store" | "recall" | "list" | "forget";
     
-    // For "store":
-    layer: "long" | "mid" | "short" | "session";
+    /**
+     * Select which store you're interacting with.
+     * - `user_memory`: categorical life context (facts, goals, open loops, etc.)
+     * - `summaries`: calendar-aligned conversation roll-ups
+     */
+    store?: "user_memory" | "summaries";
     content?: string;
-    category?: string;       // For long-term: "fact", "preference", "relationship"
-                             // For mid-term: "goal", "plan", "project"
-    certainty?: number;      // 0-1, for goals/plans
+    tags?: string[];
+    /**
+     * For `store: "user_memory"`.
+     */
+    category?:
+      | "fact"
+      | "preference"
+      | "life-goal"
+      | "project"
+      | "open-loop"
+      | "relationship"
+      | "health"
+      | "work"
+      | "personal-context";
+    /**
+     * Replaces "certainty".
+     * 0–100: how actively the user is pursuing this (best for goals/projects/open-loops).
+     * Facts typically omit this or use 100 by convention.
+     */
+    pursuingPriority?: number;
+    
+    /**
+     * For `store: "summaries"`.
+     */
+    summary_type?:
+      | "conversation-summary"
+      | "daily-summary"
+      | "weekly-summary"
+      | "monthly-summary"
+      | "quarterly-summary"
+      | "yearly-summary";
+    period_key?: string; // see below
+    chat_id?: string;    // for conversation-summary (virtual chat/session)
     
     // For "recall":
     query?: string;          // Semantic search across memories
-    layer?: string;          // Filter by layer
+    store_filter?: "user_memory" | "summaries";
+    categories?: Array<NonNullable<MemoryTool["parameters"]["category"]>>;
+    summary_types?: Array<NonNullable<MemoryTool["parameters"]["summary_type"]>>;
+    /**
+     * Filter by time range (ISO timestamps) or by period_key prefix.
+     * Examples:
+     * - period_key_prefix: "2025-12" (month)
+     * - period_key_prefix: "2025-W50" (week)
+     */
+    from?: string;
+    to?: string;
+    period_key_prefix?: string;
     limit?: number;          // Default: 10
     
     // For "forget":
@@ -764,10 +809,12 @@ interface MemoryTool {
     success: boolean;
     memories?: Array<{
       id: string;
-      layer: string;
+      store: string;        // "user_memory" | "summaries"
+      type: string;         // category or summary_type (implementation-defined)
       content: string;
-      category?: string;
-      certainty?: number;
+      tags?: string[];
+      period_key?: string;
+      chat_id?: string;
       created_at: string;
       relevance?: number;    // For recall results
     }>;
@@ -775,14 +822,15 @@ interface MemoryTool {
 }
 ```
 
-### Memory Layers Detailed
+### Summary period keys (calendar-aligned)
 
-| Layer | TTL | Purpose | Examples |
-|-------|-----|---------|----------|
-| **long** | Permanent | Hard facts, preferences, relationships | "Works at X", "Married to Y", "Prefers dark mode" |
-| **mid** | 1-3 months | Goals, plans, projects | "Learning Rust", "Launching product Q1", "Saving for house" |
-| **short** | Days/weeks | Recent context, conversation summaries | "Was debugging auth issue", "Discussed vacation plans" |
-| **session** | Current chat | Active task context, temporary state | "Working on this PR", "Currently in refactor mode" |
+Canonical keys (recommended):
+
+- **daily**: `YYYY-MM-DD`
+- **weekly**: ISO week `YYYY-Www` (ISO weeks are **Mon–Sun**)
+- **monthly**: `YYYY-MM`
+- **quarterly**: `YYYY-Qn`
+- **yearly**: `YYYY`
 
 ### Session Division for Telegram
 
