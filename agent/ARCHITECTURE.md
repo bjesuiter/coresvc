@@ -208,152 +208,271 @@ User → curl/Postman → Core Server → SQLite
 
 ## Addon C: Memory System
 
-**Based on:** [ChatGPT's Memory Architecture](https://manthanguptaa.in/posts/chatgpt_memory/)
+This section defines the **Memory System v1** architecture: a reliable, low-noise long-term context system built around **summaries + explicit memories**, with auditable provenance and deliberate secret-handling.
 
-Multi-layered memory system for personalized, context-aware bot interactions:
+### Memory System v1 Spec (Agreed Decisions + Notes)
 
-### Layer 1: Session Context (Ephemeral)
+#### Goals (v1)
 
-- [ ] **C.1.1** Track current conversation state (active command, pending input)
-- [ ] **C.1.2** Store temporary session data (command parameters, pagination state)
-- [ ] **C.1.3** Auto-expire session data after inactivity timeout
+- Provide reliable, low-noise long-term context for the bot via **summaries + explicit memories**.
+- Keep artifacts **auditable and regeneratable**, but avoid overbuilding (no auto action/todo extraction yet).
+- Single-user/dev-focused; optimize for clarity and iteration.
 
-### Layer 2: User Profile (Long-term)
+---
 
-- [ ] **C.2.1** Create `user_memory` table schema (id, category, content, pursuing_priority, source, created_at, updated_at)
-- [ ] **C.2.2** Generate migration for user memory table
-- [ ] **C.2.3** Implement memory extraction from conversations (explicit "remember this" + auto-detection)
-- [ ] **C.2.4** Implement `/remember <fact>` command for explicit memory storage
-- [ ] **C.2.5** Implement `/forget <fact_id>` command for memory deletion
-- [ ] **C.2.6** Implement `/memories` command to list stored facts
-- [ ] **C.2.7** Categories: `fact`, `preference`, `life-goal`, `project`, `open-loop`, `relationship`, `health`, `work`, `personal-context` (extend as needed)
-- [ ] **C.2.8** `pursuing_priority` (0–100): use for goals/projects/open-loops to reflect how actively the user is pursuing it (facts are typically 100 or omitted)
+#### Core Principles
 
-### Layer 3: Conversation Summaries (Compressed History)
+##### “Summaries are views, not truth”
 
-- [ ] **C.3.1** Create `conversation_summaries` table (id, summary_type, content, topics/tags, period_key, period_start, period_end, source_ids, created_at, updated_at)
-- [ ] **C.3.2** Implement periodic summarization jobs (conversation/weekly/monthly/quarterly/yearly; daily optional)
-- [ ] **C.3.3** Extract key topics and action items from conversations
-- [ ] **C.3.4** Keep all artifacts (no deletion); rely on retrieval windows + active search for older context
-- [ ] **C.3.5** Implement `/history` command for recent activity overview
+- Period summaries (weekly/monthly/…) are **regeneratable caches** derived from lower-level artifacts.
+- “Truth” lives in:
+  - explicit `user_memory` entries (created via `/remember`), and
+  - original `messages` (as stored).
 
-#### Tiered “Backup-Style” Summary Plan (Additive, Calendar-Aligned)
+##### Regeneration & drift control
 
-We model summaries like backups, but **we do not delete existing artifacts**. Instead:
+- Prefer generating each period summary **directly from conversation summaries within that period** when feasible:
+  - weekly ← conversation-summaries in that week
+  - monthly ← conversation-summaries in that month (not from weekly by default)
+  - quarterly/yearly similarly (direct from conversation-summaries in that period when practical)
+- Fallback to rollups is allowed later if needed for cost/size, but the preference is “direct from conversation-summaries” to reduce drift.
 
-- We continuously **add** higher-level summaries (weekly/monthly/quarterly/yearly).
-- Retrieval uses **fixed windows** (recent + current period context).
-- Anything older is still available, but requires **active retrieval** (semantic search / explicit query).
+---
 
-##### Summary types (stored in `conversation_summaries`)
+#### Data Model (v1)
 
-Time-based summary “backup” types:
+##### 1) `messages` table (required in v1)
 
-- `daily-summary` (optional; see note below)
-- `weekly-summary` (calendar week **Monday → Sunday**)
-- `monthly-summary` (calendar month)
-- `quarterly-summary` (calendar quarter)
-- `yearly-summary` (calendar year)
+Purpose: persistent storage for chats/inputs and summarization source material.
 
-Additional long-term memory types (stored separately in `user_memory`):
+Minimum fields:
 
-- `evergreen` (always-true facts about the user; stable identity/relationships) — best represented as `category = fact|relationship` in `user_memory`
-- `highlight` (important turning point / life highlight; **manual insert only**) — best represented as `category = personal-context` (or dedicated category) in `user_memory`
+- `id` (pk)
+- `session_id` (string/uuid)
+- `role` (`user|assistant|system` as needed)
+- `content` (text)
+  - Stored content is what the system will use; no encrypted raw storage in v1.
+- `created_at` (timestamp)
+- `summarized_at` (timestamp nullable) or `is_summarized` (boolean)
+- Secret-scrub metadata:
+  - `scrub_status` (`clean|flagged|approved|rejected`) or equivalent
+  - `secrets_override` (boolean) — if approval was granted
+  - optional: `scrub_reason` (text), `scrub_rule_hits` (json/text)
 
-Conversation-scoped memory artifacts:
+Retrieval rule (v1):
 
-- `conversation-summary` (summary of one “virtual chat/session”) — stored in `conversation_summaries` with `summary_type = conversation-summary`
+- Raw `messages` are **NOT** used for default context retrieval.
+- Only the current live chat messages (runtime window) are used directly.
 
-**Note on daily summaries:** you can skip `daily-summary` entirely and rely on `conversation-summary` + weekly roll-ups. Daily summaries are helpful if you want a “what happened on Tuesday” view.
+##### 2) `conversation_summaries` table (v1)
 
-##### Period keys (canonical identifiers)
+Purpose: “Layer 3” summaries; includes per-session summaries and calendar rollups.
 
-Use stable, calendar-aligned keys so selection is easy and deterministic:
+Minimum fields:
 
-- **daily**: `YYYY-MM-DD`
-- **weekly**: ISO week `YYYY-Www` (ISO weeks are **Mon–Sun**)
-- **monthly**: `YYYY-MM`
-- **quarterly**: `YYYY-Qn` (n = 1..4)
-- **yearly**: `YYYY`
+- `id` (pk)
+- `summary_type`:
+  - `conversation-summary`
+  - `weekly-summary`
+  - `monthly-summary`
+  - `quarterly-summary`
+  - `yearly-summary`
+- Period identifiers:
+  - `period_key` (nullable for conversation-summary, required for calendar rollups)
+  - `period_start` / `period_end` (nullable for conversation-summary, required for rollups)
+- `content` (text) — **plain text only in v1** (no structured JSON storage)
+- Versioning:
+  - `prompt_version` (semver string, chosen as “highest semver”)
+  - `pipeline_version` (semver string, chosen as “highest semver”)
+- Job + provenance:
+  - `job_run_id` (fk to `job_runs`)
+  - `input_hash` (text) — stable hash of ordered source IDs/inputs
+- Debug + audit:
+  - `debug` (boolean)
+  - `created_at`, `updated_at`
 
-Store `period_start`/`period_end` timestamps alongside `period_key` for correctness across timezones.
+Uniqueness + storage behavior:
 
-##### Roll-up rules (how summaries get created)
+- “Current” summaries are **unique and upserted** by:
+  - `(summary_type, period_key, prompt_version, pipeline_version, debug=false)`
+- Debug summaries are **append-only** (no upsert), can have multiple attempts.
 
-- `conversation-summary`: created when a “virtual chat/session” ends (manual `/newsession` or implicit boundaries).
-- `weekly-summary`: summarize all `conversation-summary` (and/or `daily-summary`) records whose timestamps fall within that calendar week.
-- `monthly-summary`: summarize that month’s `weekly-summary` records.
-- `quarterly-summary`: summarize that quarter’s `monthly-summary` records.
-- `yearly-summary`: summarize that year’s `quarterly-summary` records.
+Selection (“current summary”) for retrieval:
 
-All roll-ups should carry lineage (e.g., `source_memory_ids`) so we can trace what fed into what.
+- Always exclude `debug=true`
+- Prefer highest `prompt_version` + highest `pipeline_version` (semver compare)
+- For the selected tuple, there should be only one row (via upsert)
 
-##### Retrieval recipe (your “tiered backup restore” approach)
+##### 3) `user_memory` table (v1)
 
-For default context assembly (before any explicit “search memory” step), fetch:
+Purpose: explicit long-term facts/preferences/goals captured via `/remember`.
 
-- **Recent**: last **X** `conversation-summary` records (or last X `daily-summary` if you adopt daily)
-- **Weekly**: weekly summaries from **current week back to the start of the current month**
-- **Monthly**: monthly summaries from **current month back to the start of the current quarter**
-- **Quarterly**: quarterly summaries from **current quarter back to the start of the current year**
-- **Yearly**: the **previous year’s** `yearly-summary` (highlights) (and optionally current year-to-date if you generate it)
-- **Always-on**: `evergreen-memory` + (optionally) top-N `highlight-memory` (manual, curated)
+Minimum fields:
 
-Everything older than the above windows is not included by default and must be **actively retrieved** (semantic recall/query) when needed.
+- `id` (pk)
+- `category` (string enum; your list from doc is fine)
+- `content` (text)
+- `status` (enum):
+  - `active`
+  - `deprecated` (used to be relevant, superseded)
+  - `retracted` (was incorrect)
+- `valid_from` (timestamp nullable)
+- `valid_to` (timestamp nullable)
+- `llmConfidence` (float 0..1 or numeric)
+- `user_importance` (int 0–100), default **50**
+- provenance fields (recommended):
+  - `source_type` (`explicit_user` for v1)
+  - `created_at`, `updated_at`
 
-##### Table split (why not one table)
+Decision:
 
-- **`user_memory`** is optimized for **categorical, queryable life context** (facts, preferences, goals, open loops) and includes `pursuing_priority` for “how active is this?”.
-- **`conversation_summaries`** is optimized for **time-window retrieval** (conversation/week/month/quarter/year roll-ups) using calendar keys + lineage.
+- `pursuing_priority` is **removed for v1**; keep a doc note that it may return later for goals.
 
-##### Summarization prompts (each type gets its own prompt)
+##### 4) `job_runs` table (v1)
 
-Each memory type should use a dedicated prompt with:
+Purpose: auditability + reproducible generation.
 
-- **Scope**: what source material it summarizes (messages vs summaries)
-- **Focus**: what to extract (decisions, action items, ongoing threads, changes in preferences, etc.)
-- **Output shape**: consistent sections (so retrieval can be selective)
+Minimum fields:
 
-Suggested focus per type:
+- `id` (pk)
+- `job_type` (e.g. `summarize-conversation`, `summarize-week`, `truncate-summary`, etc.)
+- `status` (`running|success|failed`)
+- `input_hash` (text)
+- `prompt_version` (semver)
+- `pipeline_version` (semver)
+- `started_at`, `finished_at`
+- optional: `error` (text), `metrics` (json/text)
 
-- **`conversation-summary`**: decisions, action items, unresolved questions, key context, “what to remember next time”
-- **`daily-summary`**: a day-level narrative + what changed + what’s next
-- **`weekly-summary`**: progress by project/area, recurring themes, open loops, blockers
-- **`monthly-summary`**: milestones, trendlines, notable changes in goals/routines
-- **`quarterly-summary`**: goal-level progress, major commitments, strategic shifts, “what mattered”
-- **`yearly-summary`**: highlights + turning points + enduring themes; minimal but high-signal
-- **`evergreen-memory`**: only stable truths; avoid transient details; include provenance if relevant
-- **`highlight-memory`**: manual, curated; optionally allow an LLM rewrite into a crisp canonical form
+---
 
-##### Work items (implementation checklist)
+#### Summarization Rules (v1)
 
-- [ ] **C.3.6** Implement `memories` table + types (including quarterly/yearly) + lineage
-- [ ] **C.3.7** Implement “virtual chats” (start/switch/end) to support `conversation-summary`
-- [ ] **C.3.8** Implement calendar-aligned roll-ups: weekly → monthly → quarterly → yearly
-- [ ] **C.3.9** Implement retrieval windows exactly as defined above + “active retrieval” search path
-- [ ] **C.3.10** Add per-type summarization prompts (versioned) + output schema validation
+##### Conversation/session summaries
 
-### Layer 4: Current Messages (Sliding Window)
+- Sessions are defined by:
+  - **implicit inactivity timeout** (configurable), and
+  - explicit `/newsession` command.
+- Each message gets a `session_id`.
+- A `conversation-summary` is generated for a session when the session is closed or timed out.
 
-- [ ] **C.4.1** Create `messages` table (id, role, content, timestamp, summarized)
-- [ ] **C.4.2** Implement sliding window (last N messages or T minutes)
-- [ ] **C.4.3** Include relevant context from upper layers in responses
-- [ ] **C.4.4** Mark messages as summarized after compression
+##### Period summaries
 
-### Memory Integration
+- Calendar-aligned rollups exist as artifacts (`weekly-summary`, etc.).
+- Preferred inputs:
+  - generate period summaries from **conversation-summaries in that exact period** (not from intermediate rollups) to reduce drift.
 
-- [ ] **C.5.1** Create memory retrieval service (combines all layers for context)
-- [ ] **C.5.2** Add memory context to bot response generation
-- [ ] **C.5.3** Implement relevance scoring for memory retrieval
-- [ ] **C.5.4** Add memory management REST endpoints (`GET/POST/DELETE /memory`)
+##### Hard caps + truncation
 
-### Custom Memory System Remarks 
+- Summary size target uses a dynamic cap:
+  - `cap = min(8 KB, 10% of input chars)` (exact values configurable later)
+- If the summarizer output exceeds cap:
+  - store an oversized output as `debug=true` entry
+  - run a dedicated **truncation LLM step** to cut irrelevant info
+  - store the final non-debug “current” summary via upsert
 
-**From aihero cohort 002 - Skill Exercise 05.02**
-For a custom AI System I'd want explicit knowledge saving the most time, except when the user brings up some key information, like Job history, Girlfriend or mariage, Kids or Life goals.
-Make sure to categorize the "hardness" of the information: 
-A job change is a hard fact that gets recorded once and never changes in the future. 
-A Life Goal is more of a "plan" with different levels of certainty (User is thinking of, user is determined to, etc.)
+##### Idempotency / when to recompute
+
+- Automatic/scheduled jobs:
+  - do **not** recompute if `input_hash` unchanged (skip LLM calls)
+  - recompute only when `input_hash` changed
+- Prompt/pipeline version bumps:
+  - do **not** recompute automatically when only version changed
+  - recompute **only when manually forced**
+- Manual jobs accept `force=true`:
+  - regenerate even if `input_hash` unchanged
+
+---
+
+#### Secret Scrubbing & Approvals (v1)
+
+##### Scrub pipeline
+
+- **Regex/best-effort scrubber** runs on each incoming message.
+- If scrubber flags suspicious content:
+  - run **LLM scrub** (only when regex flags something)
+  - produce a redacted preview
+  - require explicit approval before storing/summarizing (unless denied)
+
+##### REST behavior (no Telegram dependency)
+
+- If input is flagged during REST request:
+  - request fails with a conflict (e.g. 409)
+  - response returns:
+    - the redacted message
+    - HATEOAS-style links to approve/reject
+
+##### `pending_scrub_approvals` table (v1)
+
+- Stores pending approvals with expiry.
+- Minimum fields:
+  - `id`
+  - `full_text` (as received)
+  - `redacted_text`
+  - `reason` / metadata
+  - `expires_at`
+  - `created_at`
+  - audit on resolution:
+    - `approved_at`
+    - `approved_via` (`rest|telegram` possible later)
+    - `approved_by_user_id` (if applicable)
+    - `rejected_at`
+- Rejected approvals are kept temporarily (e.g. 7 days) for debugging (policy can be implemented later).
+
+##### Override semantics
+
+- If user approves, it’s a master override:
+  - store the full message in plaintext
+  - include it in summarization like normal
+- Note: this intentionally accepts the risk of secrets entering DB/summaries; user is cautious and override is deliberate.
+
+---
+
+#### Retrieval Policy (v1)
+
+Default context assembly (for LLM responses):
+
+- Use:
+  - session context (runtime)
+  - relevant `conversation_summaries` (recent + current period windows as defined elsewhere)
+  - optionally `user_memory` (active + top-N by `user_importance`)
+- Do **not** include stored raw `messages` by default.
+
+Active retrieval (later):
+
+- Consider **FTS5 first** for searching `user_memory` + `conversation_summaries`
+- Keep hook to later add embeddings via `sqlite-vec`.
+
+---
+
+#### Commands / UX (v1)
+
+##### `/remember <text...>`
+
+- User provides free-form text.
+- System uses LLM to propose structured fields (category, status, validity, llmConfidence, importance).
+- Always show proposed memory back to user for confirmation before insert.
+
+(No auto-extraction from conversations in v1.)
+
+---
+
+#### Cleanup / Maintenance (Developer-only, v1)
+
+Destructive cleanup actions (like “delete browser data”):
+
+- delete all `conversation_summaries` where `debug=true`
+- delete legacy `pipeline_version` summaries (keeping latest per `(summary_type, period_key)`)
+- delete legacy `prompt_version` summaries (keeping latest per `(summary_type, period_key)`)
+
+---
+
+#### Notes / Deferred Ideas
+
+- Add “secret chats” concept later (different storage/summarization rules).
+- Consider message retention later:
+  - export/archive older `messages` (e.g. per thread/session) and then purge.
+- Consider reintroducing `pursuing_priority` later if goals need a separate “activity” axis from `user_importance`.
+- Consider tags/entities later (additional columns or structured storage) as a new pipeline version.
 
 ---
 
