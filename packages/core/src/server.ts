@@ -1,4 +1,7 @@
+import { Elysia } from "elysia";
 import { runMigrations } from "./db/migrate";
+import { authRoutes } from "./interfaces/rest/auth";
+import { auth } from "./auth";
 
 async function startServer() {
   console.log("Core service starting...");
@@ -11,7 +14,14 @@ async function startServer() {
   }
 
   console.log(migrationResult.value);
-  console.log("Core service started successfully");
+
+  // Create Elysia server
+  const app = new Elysia()
+    .use(authRoutes)
+    .get("/", () => ({ message: "Core service is running" }))
+    .listen(process.env.PORT || 3000);
+
+  console.log(`Core service started successfully on port ${app.server?.port}`);
 }
 
 startServer().catch(console.error);

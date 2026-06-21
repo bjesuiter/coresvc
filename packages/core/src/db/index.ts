@@ -1,11 +1,12 @@
-import { createClient } from '@libsql/client';
+import { createClient, type Client } from '@libsql/client';
 import { mkdir } from 'fs/promises';
-import { drizzle } from "drizzle-orm/libsql";
+import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import * as schema from "./schema";
 
-let dbInstance: ReturnType<typeof drizzle> | null = null;
+let dbInstance: LibSQLDatabase<typeof schema> | null = null;
+let dbClient: Client | null = null;
 
-export function getDb() {
+export function getDb(): LibSQLDatabase<typeof schema> {
   if (!dbInstance) {
     const dbPath = process.env.DATABASE_PATH || './data/core.db';
     
@@ -15,12 +16,27 @@ export function getDb() {
       mkdir(dir, { recursive: true }).catch(() => {});
     }
     
-    const client = createClient({
+    dbClient = createClient({
       url: `file:${dbPath}`,
     });
     
-    dbInstance = drizzle(client, { schema });
+    dbInstance = drizzle(dbClient, { schema });
   }
   
   return dbInstance;
+}
+
+/**
+ * Reset the database instance. Used for testing to inject a mock database.
+ */
+export function resetDbInstance(): void {
+  dbInstance = null;
+  dbClient = null;
+}
+
+/**
+ * Set a custom database instance. Used for testing with in-memory databases.
+ */
+export function setDbInstance(instance: LibSQLDatabase<typeof schema>): void {
+  dbInstance = instance;
 }

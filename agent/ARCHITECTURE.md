@@ -68,24 +68,24 @@ User → curl/Postman → Core Server → SQLite
 - [x] **3.3** Add helper for encrypting/decrypting JSON objects
 - [x] **3.4** Document ENCRYPTION_KEY env var requirements (32 bytes, base64)
 
-## Phase 4: Authentication
+## Phase 4: Authentication ✅
 
 **Stack:** better-auth + Drizzle + SQLite, database sessions
 
-- [ ] **4.1** Add better-auth dependency
-- [ ] **4.2** Create better-auth Drizzle schema (users, sessions, accounts tables)
-- [ ] **4.3** Configure better-auth with email provider (no social login yet)
-- [ ] **4.4** Implement `POST /auth/registerAdmin`:
+- [x] **4.1** Add better-auth dependency
+- [x] **4.2** Create better-auth Drizzle schema (users, sessions, accounts tables)
+- [x] **4.3** Configure better-auth with email provider (no social login yet)
+- [x] **4.4** Implement `POST /auth/registerAdmin`:
   - Reads `ROOT_USER_EMAIL`, `ROOT_USER_LABEL`, `ROOT_USER_PASSWORD` from env
   - Creates user if not exists
   - `?force=true` overwrites existing user
   - Called on first startup
-- [ ] **4.5** Implement `POST /auth/signin`:
+- [x] **4.5** Implement `POST /auth/signin`:
   - Validates credentials via better-auth
   - Returns session cookie + structured body `{ sessionToken, expiresAt }`
   - `?tokenOnly=true` returns only the token string
-- [ ] **4.6** Add auth middleware for protected routes
-- [ ] **4.7** Document new env vars: `ROOT_USER_EMAIL`, `ROOT_USER_LABEL`, `ROOT_USER_PASSWORD`
+- [x] **4.6** Add auth middleware for protected routes
+- [x] **4.7** Document new env vars: `ROOT_USER_EMAIL`, `ROOT_USER_LABEL`, `ROOT_USER_PASSWORD`
 
 **Future:** Social logins will link to existing accounts by email
 

@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@libsql/client": "0.15.15",
+    "better-auth": "^1.0.1",
     "drizzle-orm": "0.45.0",
     "elysia": "1.1.0",
     "grammy": "1.21.0",
